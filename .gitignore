@@ -4,11 +4,13 @@ venv/
 env/
 ENV/
 
-# Data files
-DATA/
-*.xlsx
-*.xls
-*.csv
+# Data files (but allow processed folder)
+DATA/*
+!DATA/processed/
+DATA/processed/*
+!DATA/processed/credit_analysis_final.csv
+!DATA/processed/credit_dataset_30k.csv
+!DATA/processed/credit_dataset_30k.xlsx
 
 # Notebooks output
 notebooks/catboost_info/
@@ -27,3 +29,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
