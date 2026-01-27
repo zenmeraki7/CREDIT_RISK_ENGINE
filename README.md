@@ -1,364 +1,224 @@
-# 💳 Credit Risk Assessment System
+# Credit Risk Assessment System
 
-A **hybrid ML + rule-based** loan decision engine built with Random Forest and deployed as a Streamlit web app.
+A production-ready loan decision engine combining machine learning with rule-based logic for intelligent, explainable credit decisions.
 
----
+## Overview
 
-## 🎯 What Does This Do?
+This system provides automated loan approval decisions using a hybrid approach that combines Random Forest classification with regulatory compliance rules and affordability checks. Built with Python and deployed as an interactive Streamlit web application.
 
-Makes smart loan decisions using:
-1. **Hard Rules** → Auto-reject risky applicants (bureau score < 550, severe delinquencies)
-2. **ML Model** → Random Forest predicts APPROVE/REVIEW/REJECT
-3. **Affordability Check** → Ensures debt-to-income ratio ≤ 45%
+### Key Features
 
-**Result:** Fast, accurate, and explainable lending decisions! ✅
+- **Intelligent Decision Making**: Random Forest model trained on 60,000 loan applications
+- **Rule-Based Safety**: Automatic rejection of high-risk applications based on credit bureau scores and delinquency history
+- **Affordability Verification**: Debt-to-income ratio validation ensures responsible lending
+- **Explainable Results**: Confidence scores and decision reasoning for every prediction
+- **Batch Processing**: Evaluate hundreds of applications simultaneously
+- **Web Interface**: User-friendly Streamlit dashboard for single and bulk assessments
 
----
+## System Architecture
 
-## 📁 Project Structure
+The system uses a three-layer decision framework:
 
-```
-CREDIT_RISK_ENGINE/
-├── 📊 DATA/
-│   └── processed/
-│       └── train_60k_rule_accepted.csv    # Your 60K training data
-│
-├── 📓 notebooks/
-│   ├── loan_prediction.ipynb              # Training notebook
-│   └── credit_risk_assets.pkl             # Trained model (generated)
-│
-├── 🐍 Python Scripts:
-│   ├── app.py                             # 🌐 Streamlit web app (MAIN)
-│   ├── extract_test_samples.py            # 🧪 Create test CSV
-│   ├── validate_predictions.py            # ✅ Check accuracy
-│   └── test_decision_engine.py            # 🔬 Unit tests
-│
-├── 📄 Generated Files:
-│   ├── credit_risk_assets.pkl             # Trained model + encoders
-│   ├── test_samples.csv                   # Test data (15-20 samples)
-│   └── validation_results.csv             # Accuracy report
-│
-└── 📝 Documentation:
-    ├── README.md                          # This file
-    └── requirements.txt                   # Python dependencies
-```
+1. **Hard Rules Layer**: Immediate rejection for applications that fail basic risk thresholds
+2. **Machine Learning Layer**: Random Forest classifier analyzes 15 key financial indicators
+3. **Affordability Overlay**: Post-approval DTI verification to ensure sustainable repayment
 
----
+### Decision Outcomes
 
-## 🚀 Quick Start (3 Steps)
+- **APPROVE**: Low-risk applicants with strong credit profiles and manageable debt levels
+- **REVIEW**: Borderline cases requiring manual underwriter assessment
+- **REJECT**: High-risk applicants who fail to meet minimum requirements
 
-### **Step 1: Train the Model**
-```bash
-# Open the notebook and run all cells
-jupyter notebook notebooks/loan_prediction.ipynb
-```
-**Output:** Creates `credit_risk_assets.pkl` (your trained model)
+## Installation
 
----
+### Prerequisites
 
-### **Step 2: Test the System**
-```bash
-# Create test samples from your 60K dataset
-python extract_test_samples.py
+- Python 3.8 or higher
+- pip package manager
 
-# Validate predictions (check accuracy)
-python validate_predictions.py
-```
-**Output:** 
-- `test_samples.csv` (ready to use)
-- Shows accuracy % (should be >80%)
+### Setup
 
----
+Install required dependencies:
 
-### **Step 3: Launch the Web App**
-```bash
-streamlit run app.py
-```
-**Opens in browser:** http://localhost:8501
-
----
-
-## 🧪 How to Test If It's Working
-
-### **Method 1: Quick Unit Test**
-```bash
-python test_decision_engine.py
-```
-**You should see:**
-```
-✅ Good Customer → APPROVE
-❌ Bad Bureau Score → REJECT
-❌ Severe Delinquency → REJECT
-⚠️ High DTI → REVIEW
-```
-
----
-
-### **Method 2: Validate Against Real Data**
-```bash
-python validate_predictions.py
-```
-**You should see:**
-```
-📊 Overall Accuracy: 87.3% (14/16 correct)
-✅ Correct Predictions: 14 cases
-⚠️ Mismatches: 2 cases
-```
-
-**If accuracy < 70%:** Something's wrong with features!
-
----
-
-### **Method 3: Test in Streamlit**
-1. Run `streamlit run app.py`
-2. Go to **"Batch Processing"** page
-3. Upload `test_samples.csv`
-4. Click **"Process All"**
-5. Compare with `validation_results.csv`
-
-**They should match!** ✅
-
----
-
-## 📊 What the Streamlit App Can Do
-
-### 🏠 **Home Page**
-- Shows model info (60K training data, 15 features, accuracy)
-- Lists all features the model uses
-
-### 👤 **Single Assessment**
-- Enter customer details manually
-- Get instant decision (APPROVE/REVIEW/REJECT)
-- See confidence score and reason
-
-### 📊 **Batch Processing**
-- Upload CSV with multiple customers
-- Process hundreds at once
-- Download results with predictions
-
-### 📈 **Model Info**
-- View feature importance
-- Understand decision thresholds
-- See model architecture
-
----
-
-## 🔑 Key Features Your Model Uses
-
-The model was trained to select the **top 15 most predictive features**. Common ones include:
-
-- `bureau_score` - Credit score
-- `dpd_90_count_6m` - Severe delinquencies (90+ days)
-- `total_emi_monthly` - Total monthly loan payments
-- `avg_salary_6m` - Average salary (6 months)
-- `net_cash_surplus_6m` - Cash left after expenses
-- `salary_stability_flag` - STABLE/MODERATE/UNSTABLE
-- ... and 9 more
-
-**To see YOUR exact features:**
-```bash
-python extract_test_samples.py
-```
-
----
-
-## 🛡️ Decision Rules
-
-### **Hard Reject Rules (No ML needed)**
-- Bureau score < 550 → **REJECT**
-- Any 90+ day delinquency → **REJECT**
-
-### **ML Model Prediction**
-- Model analyzes all 15 features
-- Outputs: APPROVE, REVIEW, or REJECT
-- Includes confidence score (0-100%)
-
-### **Affordability Overlay**
-- Calculates DTI (Debt-to-Income) ratio
-- If APPROVE but DTI > 45% → **REVIEW**
-
----
-
-## 📝 Sample Test Cases
-
-### ✅ **Should APPROVE**
-```python
-{
-    'bureau_score': 720,
-    'dpd_90_count_6m': 0,
-    'total_emi_monthly': 15000,
-    'avg_salary_6m': 50000,
-    'salary_stability_flag': 'STABLE'
-}
-# DTI = 30% ✅
-```
-
-### ❌ **Should REJECT**
-```python
-{
-    'bureau_score': 450,  # Below 550!
-    'dpd_90_count_6m': 2  # Has severe delinquencies!
-}
-```
-
-### ⚠️ **Should REVIEW**
-```python
-{
-    'bureau_score': 720,
-    'dpd_90_count_6m': 0,
-    'total_emi_monthly': 30000,
-    'avg_salary_6m': 50000  # DTI = 60% > 45%!
-}
-```
-
----
-
-## 🔧 Troubleshooting
-
-### **Problem: "credit_risk_assets.pkl not found"**
-**Solution:**
-```bash
-# Make sure you ran the training notebook first!
-# Then copy the file to the app directory
-cp notebooks/credit_risk_assets.pkl .
-```
-
----
-
-### **Problem: "Low accuracy (<70%)"**
-**Causes:**
-- Feature names don't match between training and app
-- Categorical encoding is wrong
-- Missing important features
-
-**Solution:**
-```bash
-# Check what features the model expects
-python extract_test_samples.py
-
-# Compare with your Streamlit form fields
-# Update app.py to match exact feature names
-```
-
----
-
-### **Problem: "All predictions are REVIEW"**
-**Cause:** Model is getting default values (0s or "Unknown")
-
-**Solution:**
-- Make sure your CSV has all required features
-- Check feature names match exactly (case-sensitive!)
-- Run `validate_predictions.py` to see which features are missing
-
----
-
-## 📦 Installation
-
-### **Requirements**
 ```bash
 pip install -r requirements.txt
 ```
 
-**Key packages:**
-- `streamlit` - Web app framework
-- `pandas` - Data processing
-- `scikit-learn` - ML model
-- `plotly` - Interactive charts
-- `joblib` - Model saving/loading
+Key packages include Streamlit, pandas, scikit-learn, plotly, and joblib.
+
+## Getting Started
+
+### Training the Model
+
+Open and execute the Jupyter notebook to train the Random Forest classifier:
+
+```bash
+jupyter notebook notebooks/loan_prediction.ipynb
+```
+
+This generates the trained model file (`credit_risk_assets.pkl`) containing the classifier and feature encoders.
+
+### Launching the Application
+
+Start the web interface:
+
+```bash
+streamlit run app.py
+```
+
+The application will open in your browser at `http://localhost:8501`
+
+### Testing the System
+
+Validate model accuracy:
+
+```bash
+python validate_predictions.py
+```
+
+Run unit tests:
+
+```bash
+python test_decision_engine.py
+```
+
+## Using the Application
+
+### Single Application Assessment
+
+1. Navigate to the "Single Assessment" page
+2. Enter applicant financial information
+3. Receive instant decision with confidence score and explanation
+
+### Batch Processing
+
+1. Navigate to the "Batch Processing" page
+2. Upload CSV file containing applicant data
+3. Process all applications simultaneously
+4. Download results with predictions and reasoning
+
+### Model Insights
+
+View feature importance rankings, decision thresholds, and model architecture details in the "Model Info" section.
+
+## Decision Logic
+
+### Automatic Rejection Criteria
+
+Applications are immediately rejected if:
+- Credit bureau score below 550
+- Any delinquency of 90+ days in the past 6 months
+
+### Machine Learning Evaluation
+
+The Random Forest model analyzes 15 carefully selected features including:
+- Credit bureau score
+- Recent delinquency counts
+- Monthly debt obligations
+- Income stability indicators
+- Cash flow metrics
+
+### Affordability Check
+
+Approved applications undergo final DTI verification:
+- DTI ratio above 45% triggers manual review
+- Ensures borrower can sustainably manage additional debt
+
+## Model Performance
+
+- **Training Dataset**: 60,000 loan applications
+- **Features**: 15 predictive indicators
+- **Algorithm**: Random Forest Classifier
+- **Expected Accuracy**: 85-90%
+
+### Decision Distribution
+
+Typical prediction breakdown:
+- 60% Approve
+- 25% Review
+- 15% Reject
+
+## Data Requirements
+
+### Input Features
+
+All applications must include the following information:
+- Credit bureau score
+- Income details (amount and stability)
+- Existing debt obligations
+- Recent payment behavior
+- Delinquency history
+
+### CSV Format for Batch Processing
+
+Upload files must contain all required feature columns with exact naming conventions. Column names are case-sensitive and must match the training data format.
+
+## Best Practices
+
+### Ensuring Accuracy
+
+- Provide complete data for all required features
+- Use consistent categorical value formatting
+- Verify feature names match exactly
+- Test with sample data before production use
+
+### Interpreting Results
+
+- **Confidence 80-100%**: Model has high certainty
+- **Confidence 60-79%**: Model is moderately confident
+- **Confidence <60%**: Model is uncertain (typically triggers review)
+
+## Technical Notes
+
+### Feature Engineering
+
+The system uses the top 15 most predictive features to balance accuracy with simplicity. Additional features provide diminishing returns and risk overfitting.
+
+### Categorical Encoding
+
+Non-numeric features (such as employment status) are automatically encoded using label encoders stored in the model file.
+
+### Model Updates
+
+To retrain with new data:
+1. Update the training dataset
+2. Re-run the Jupyter notebook
+3. Replace the existing model file
+4. Restart the application
+
+## Troubleshooting
+
+### Low Prediction Accuracy
+
+Verify that:
+- Feature names in input data match training data exactly
+- All required features are present
+- Categorical values use consistent formatting
+- Model file is current and not corrupted
+
+### Application Errors
+
+Common issues:
+- Missing model file: Ensure training notebook has been executed
+- Import errors: Verify all dependencies are installed
+- Data format errors: Check CSV structure matches requirements
+
+## Support
+
+For issues or questions:
+1. Review the validation results from test scripts
+2. Check that all features are correctly formatted
+3. Verify model file is present and accessible
+
+## License
+
+MIT License - Free for educational and commercial use
+
+## Author
+
+Zen Meraki  
+January 2026
 
 ---
 
-## 🎓 Understanding the System
-
-### **What is Hybrid Decision Engine?**
-Instead of relying only on ML, we combine:
-- **Rules** (regulatory compliance, common sense)
-- **ML Model** (pattern recognition from 60K loans)
-- **Business Logic** (affordability, risk tolerance)
-
-### **Why 15 Features?**
-More features ≠ better model! We selected the **top 15 most predictive** features to:
-- Avoid overfitting
-- Speed up predictions
-- Reduce data collection burden
-
-### **What Does Confidence Score Mean?**
-- **80-100%**: Model is very sure about its decision
-- **60-79%**: Model is moderately confident
-- **<60%**: Model is uncertain (usually triggers REVIEW)
-
----
-
-## 📊 Model Performance
-
-**Trained on:** 60,000 loan applications  
-**Features:** 15 (scientifically selected)  
-**Algorithm:** Random Forest Classifier  
-**Expected Accuracy:** 85-90%  
-
-**Decision Breakdown:**
-- ~60% APPROVE
-- ~25% REVIEW  
-- ~15% REJECT
-
----
-
-## 🚨 Important Notes
-
-1. **Feature Names Must Match Exactly**
-   - Training CSV column names
-   - Streamlit form field names
-   - Test CSV column names
-   - All must be identical!
-
-2. **Categorical Features Need Encoding**
-   - The model can't read "STABLE" directly
-   - Must be converted to numbers (0, 1, 2)
-   - This is handled automatically by `le_map`
-
-3. **Missing Features = Bad Predictions**
-   - If a feature is missing, it defaults to 0 or "Unknown"
-   - This signals high risk to the model
-   - Always provide all 15 features!
-
----
-
-## 🤝 Contributing
-
-Found a bug? Have suggestions?
-1. Run `validate_predictions.py` first
-2. Share the accuracy report
-3. Describe what's not working
-4. Include sample test case
-
----
-
-## 📄 License
-
-MIT License - Feel free to use for learning and commercial projects!
-
----
-
-## 👨‍💻 Author
-
-**Zen Meraki**  
-January 2025
-
----
-
-## 🎯 Quick Reference
-
-| Task | Command |
-|------|---------|
-| Train model | Open `loan_prediction.ipynb` |
-| Create test data | `python extract_test_samples.py` |
-| Validate accuracy | `python validate_predictions.py` |
-| Run unit tests | `python test_decision_engine.py` |
-| Launch web app | `streamlit run app.py` |
-| Check features | `python extract_test_samples.py` |
-
----
-
-## ✨ That's It!
-
-You now have a production-ready credit risk system. Happy lending! 🚀
+**Note**: This system is designed for educational and demonstration purposes. For production deployment in regulated lending environments, ensure compliance with all applicable laws and regulations including fair lending practices and data privacy requirements.
