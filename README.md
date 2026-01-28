@@ -220,5 +220,3 @@ Zen Meraki
 January 2026
 
 ---
-
-**Note**: This system is designed for educational and demonstration purposes. For production deployment in regulated lending environments, ensure compliance with all applicable laws and regulations including fair lending practices and data privacy requirements.
