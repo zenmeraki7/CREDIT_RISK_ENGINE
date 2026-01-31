@@ -4080,6 +4080,11 @@
 
 
 
+
+
+#fixed 
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -4104,6 +4109,13 @@ import base64
 from typing import Dict, List, Any
 import json
 warnings.filterwarnings('ignore')
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from utils.pdf_generator import generate_decision_pdf
+
 
 # =============================================================================
 # PAGE CONFIGURATION
@@ -5896,12 +5908,49 @@ elif page == "👤 Assessment":
             
             # Action buttons
             col1, col2, col3 = st.columns([1, 1, 2])
-            with col1:
-                if st.button("📥 Download Report", use_container_width=True):
-                    st.info("📄 Report generation coming soon...")
-            with col2:
-                if st.button("🔄 Re-Evaluate", use_container_width=True):
-                    st.rerun()
+            #with col1:
+                # if st.button("📥 Download Report", use_container_width=True):
+                    # st.info("📄 Report generation coming soon...")
+        pdf_buffer = generate_decision_pdf(
+            decision_data={
+                **st.session_state.setdefault("decision_data", {}),
+                "application_id": app_id,
+                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            },
+            customer_data=customer_data,
+            affordability_data=st.session_state["decision_data"].get("affordability_data", {}),
+            reasons=reasons
+        )
+        st.download_button(
+            "📥 Download Report (PDF)",
+            pdf_buffer,
+            f"credit_decision_{app_id}.pdf",
+            "application/pdf",
+            use_container_width=True
+              )
+
+#     pdf_buffer = generate_decision_pdf(
+#     decision_data={
+#         **st.session_state["decision_data"],
+#         "application_id": app_id,
+#         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S")
+#     },
+#     customer_data=customer_data,
+#     affordability_data=st.session_state["decision_data"].get("affordability_data", {}),
+#     reasons=reasons
+# )
+
+# st.download_button(
+#     "📥 Download Report (PDF)",
+#     pdf_buffer,
+#     f"credit_decision_{app_id}.pdf",
+#     "application/pdf",
+#     width="stretch"
+# )
+
+        with col2:
+            if st.button("🔄 Re-Evaluate", use_container_width=True):
+             st.rerun()
         
         with tab3:
             st.markdown('<p class="section-header">Model Analysis</p>', unsafe_allow_html=True)
