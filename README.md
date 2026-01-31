@@ -2,7 +2,7 @@
 
 A **production-grade hybrid credit decision system** that combines **policy rules + machine learning + affordability analysis** to assess loan applications in a way that is **explainable, auditable, and regulator-ready**.
 
-This project is designed to resemble how **banks, NBFCs, and fintech lenders** actually make credit decisions — not just a pure ML prediction app.
+This project demonstrates how **banks, NBFCs, and fintech lenders** actually make credit decisions — not just a pure ML prediction app.
 
 ![Version](https://img.shields.io/badge/version-8.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)
@@ -11,23 +11,24 @@ This project is designed to resemble how **banks, NBFCs, and fintech lenders** a
 
 ---
 
-## 🎯 Key Capabilities
+## 🎯 Key Features
 
 * ✅ **Hybrid Decisioning**: Rule-based policy engine + ML risk model + affordability overlay
 * 📊 **Explainable Decisions**: Human-readable reason codes for every decision
 * 📝 **Audit Ready**: Complete decision logs with full traceability
 * 💰 **Affordability Engine**: FOIR calculation & income-obligation analysis
 * 👥 **Manual Review Support**: Refer/override flows with mandatory comments
-* 📄 **PDF Decision Reports**: Downloadable credit decision summaries
 * 🎨 **Professional UI**: Modern white-themed Streamlit dashboard
 * 🔢 **Risk Scoring**: 0-1000 risk score + PD (Probability of Default) percentage
 * 🏷️ **Reason Code System**: Automated generation of top 3 decision factors
+* 📄 **Complete Audit Logs**: JSON-formatted decision trails for regulatory compliance
 
 ---
 
 ## 🧠 Decision Architecture
 
-The system follows a **three-layer policy-first credit decision flow**:
+The system implements a **three-layer policy-first credit decision flow**:
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  LAYER 1: HARD POLICY GATES (Auto-Reject if Failed)        │
@@ -78,12 +79,12 @@ The system follows a **three-layer policy-first credit decision flow**:
 | **Explainability** | Rule-based reason code generation |
 | **Data Processing** | Pandas, NumPy |
 | **Visualizations** | Plotly |
-| **Reporting** | PDF generation (ReportLab) |
 | **Styling** | Custom CSS (Professional white theme) |
 
 ---
 
 ## 📁 Project Structure
+
 ```
 CREDIT_RISK_ENGINE/
 │
@@ -96,15 +97,10 @@ CREDIT_RISK_ENGINE/
 │
 ├── 📂 data/
 │   ├── raw/                            # Original datasets
-│   └── processed/                      # Engineered features (gitignored)
+│   └── processed/                      # Engineered features
 │
 ├── 📂 logs/
-│   ├── decision_logs/                  # Complete audit trails (JSON)
-│   └── audit_logs/                     # Detailed decision breakdowns
-│
-├── 📂 outputs/
-│   ├── rejection_letters/              # Auto-generated rejection letters
-│   └── decision_pdfs/                  # Downloadable decision summaries
+│   └── audit_logs/                     # Detailed decision breakdowns (JSON)
 │
 └── 📂 notebooks/
     └── model_training.ipynb            # Model development & training
@@ -121,6 +117,7 @@ CREDIT_RISK_ENGINE/
 - Virtual environment (recommended)
 
 ### Installation
+
 ```bash
 # Clone repository
 git clone https://github.com/zenmeraki7/credit-risk-engine.git
@@ -140,6 +137,7 @@ pip install -r requirements.txt
 ```
 
 ### Run the Application
+
 ```bash
 streamlit run test.py
 ```
@@ -148,60 +146,43 @@ The application will open in your default browser at `http://localhost:8501`
 
 ---
 
-## 💻 Usage Guide
+## 💻 Usage
 
-### 1️⃣ Single Application Assessment
+### Single Application Assessment
 
-**Step 1: Navigate to Assessment Page**
-- Click "👤 Assessment" in the sidebar
+1. **Navigate to Assessment Page**: Click "👤 Assessment" in the sidebar
 
-**Step 2: Fill Application Form**
-- **Identity & Eligibility**: Age, employment type, KYC status, tenure
-- **Credit Bureau**: Bureau score, DPD, utilization, inquiries
-- **Income & Financial**: Monthly income, loan amount, tenure, interest rate
-- **Existing Obligations**: Current EMI obligations
+2. **Fill Application Form** with customer details:
+   - **Identity & Eligibility**: Age, employment type, KYC status, tenure
+   - **Credit Bureau**: Bureau score, DPD, utilization, inquiries
+   - **Income & Financial**: Monthly income, loan amount, tenure, interest rate
+   - **Existing Obligations**: Current EMI obligations
 
-**Step 3: Submit & View Results**
-- Click "🔍 Assess Credit Risk"
-- View decision across 4 tabs:
-  - **📋 Application**: Summary of submitted data
-  - **📊 Decision**: Visual decision summary with cards
-  - **🔍 Analysis**: Model confidence & probability charts
-  - **📝 Audit**: Complete JSON audit trail
+3. **Submit & View Results**: Click "🔍 Assess Credit Risk"
 
-**Step 4: Download Reports**
-- Download decision summary (PDF) - Coming soon
-- Download audit log (JSON)
+4. **Review Decision** across 4 tabs:
+   - **📋 Application**: Summary of submitted data
+   - **📊 Decision**: Visual decision summary with assessment cards
+   - **🔍 Analysis**: Model confidence & probability charts
+   - **📝 Audit**: Complete JSON audit trail
 
-### 2️⃣ Understanding Decision Output
+5. **Download Reports**: Download audit log (JSON format)
 
-#### Decision Summary Shows:
+### Decision Output
 
-1. **Decision Header**
-   - Decision status (Approved/Rejected/Review)
-   - Risk score (0-1000 scale)
-   - PD percentage
-   - Approved amount & tenure
+The decision summary displays:
 
-2. **Three Assessment Cards**
-   - **Identity & Eligibility**: Age, employment, KYC with pass/fail
-   - **Credit Bureau**: Bureau score, DPD, utilization with risk levels
-   - **Affordability**: FOIR%, EMI breakdown, net disposable income
-
-3. **Reason Codes**
-   - Top 3 factors influencing the decision
-   - Plain English explanations
-   - Suitable for customer communication
-
-4. **Complete Audit Trail**
-   - All policy checks executed
-   - ML model version used
-   - Processing timestamp
-   - Full reproducibility data
+- **Decision Header**: Status (Approved/Rejected/Review), risk score (0-1000), PD percentage
+- **Three Assessment Cards**: 
+  - Identity & Eligibility (with pass/fail indicators)
+  - Credit Bureau (with risk level badges)
+  - Affordability (with FOIR breakdown)
+- **Reason Codes**: Top 3 factors influencing the decision
+- **Complete Audit Trail**: All policy checks, ML model version, timestamps
 
 ---
 
-## 🧠 ML Risk Engine Details
+## 🧠 ML Risk Engine
 
 ### Model Specifications
 
@@ -213,7 +194,7 @@ The application will open in your default browser at `http://localhost:8501`
 | **Output** | 3-class prediction (Approve/Review/Reject) |
 | **Confidence Scoring** | Probability distribution across classes |
 
-### Key Features Used
+### Key Features
 
 **Credit Behavior**
 - Bureau score (normalized)
@@ -309,6 +290,7 @@ The application will open in your default browser at `http://localhost:8501`
 ## 📝 Audit & Logging
 
 ### Every Application Records:
+
 ```json
 {
   "application_id": "PL20250131123456",
@@ -369,10 +351,10 @@ The application will open in your default browser at `http://localhost:8501`
 
 ### Data Protection
 
-- ✅ PAN/Aadhaar masking in logs
-- ✅ Sensitive data encryption (placeholder - implement with production keys)
-- ✅ Role-based access control (framework in place)
+- ✅ PAN/Aadhaar masking in logs (show only last 4 digits)
+- ✅ Role-based access control framework
 - ✅ Audit trail immutability
+- ✅ Secure data handling practices
 
 ### Regulatory Alignment
 
@@ -380,7 +362,7 @@ The application will open in your default browser at `http://localhost:8501`
 - ✅ **Fair Lending**: No discriminatory features (gender, caste, religion blocked)
 - ✅ **Explainability**: Reason codes for all rejections
 - ✅ **Right to Know**: Customers informed of decision basis
-- ✅ **Grievance Mechanism**: Reference numbers in rejection letters
+- ✅ **Grievance Mechanism**: Reference numbers in audit logs
 
 ### Feature Governance
 
@@ -399,33 +381,9 @@ The application will open in your default browser at `http://localhost:8501`
 
 ---
 
-## 🛣️ Roadmap & Future Enhancements
-
-### Version 9.0 (Planned)
-
-- [ ] **Real PDF Generation**: Complete decision summary reports
-- [ ] **Batch Processing UI**: Upload CSV, download results
-- [ ] **Champion/Challenger**: A/B testing for model versions
-- [ ] **SHAP Explanations**: Feature importance visualization
-- [ ] **REST API**: Programmatic access to decision engine
-- [ ] **Database Integration**: PostgreSQL for decision storage
-- [ ] **User Authentication**: Multi-role access (Analyst/Reviewer/Admin)
-
-### Version 10.0 (Vision)
-
-- [ ] **Real-time Monitoring Dashboard**: Decision metrics, drift detection
-- [ ] **Model Retraining Pipeline**: Automated monthly retraining
-- [ ] **Bias & Fairness Checks**: Demographic parity analysis
-- [ ] **Policy Configuration UI**: Non-technical policy updates
-- [ ] **Integration APIs**: Core banking, credit bureaus
-- [ ] **Mobile-Responsive Design**: Progressive web app
-- [ ] **Multi-language Support**: Localization for regional markets
-
----
-
 ## 📊 Performance Metrics
 
-### Model Performance (Training)
+### Model Performance
 
 | Metric | Value |
 |--------|-------|
@@ -446,48 +404,33 @@ The application will open in your default browser at `http://localhost:8501`
 
 ---
 
-## 🧪 Testing
+## 📖 Core Components
 
-### Unit Tests (Planned)
-```bash
-# Run all tests
-pytest tests/ -v
+### System Modules
 
-# Run specific test categories
-pytest tests/test_policy_rules.py -v
-pytest tests/test_affordability.py -v
-pytest tests/test_reason_codes.py -v
-```
+**Affordability Engine** (`calculate_affordability()`)
+- EMI calculation using reducing balance method
+- FOIR percentage calculation
+- Net disposable income computation
+- Affordability status determination
 
-### Test Coverage
+**Reason Code Generator** (`generate_reason_codes()`)
+- Automated reason generation based on decision
+- Top 3 factor extraction
+- Human-readable templates for all scenarios
 
-- [ ] Policy rule validation
-- [ ] Affordability calculations
-- [ ] Reason code generation
-- [ ] Feature blocking enforcement
-- [ ] Data masking
-- [ ] Risk score calculation
+**Risk Scoring** (`calculate_final_risk_score()`)
+- Multi-factor weighted scoring (0-1000 scale)
+- Bureau score contribution (40%)
+- ML confidence contribution (40%)
+- FOIR contribution (20%)
 
----
-
-## 📖 Documentation
-
-### Key Files
-
-| File | Description |
-|------|-------------|
-| `README.md` | This comprehensive guide |
-| `IMPLEMENTATION_GUIDE.md` | Detailed implementation steps |
-| `QUICK_REFERENCE.md` | Quick lookup for common tasks |
-| `API_DOCUMENTATION.md` | REST API docs (when released) |
-
-### Code Documentation
-
-All major functions include docstrings with:
-- Purpose description
-- Parameter explanations
-- Return value details
-- Usage examples
+**Decision Engine** (`make_hybrid_decision_enhanced()`)
+- Three-layer policy-first architecture
+- Complete policy gate validation
+- ML model integration
+- Affordability overlay
+- Final decision synthesis
 
 ---
 
@@ -513,7 +456,8 @@ Contributions are welcome! Please follow these guidelines:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
+
 ```
 MIT License
 
@@ -580,7 +524,7 @@ Most ML projects predict outcomes. This project **makes business decisions** wit
 
 ## 🎓 Learning Outcomes
 
-If you understand this system, you understand:
+Understanding this system means understanding:
 
 ✅ How banks actually approve/reject loans  
 ✅ Why ML alone isn't enough for lending  
@@ -598,45 +542,13 @@ If you understand this system, you understand:
 
 If you encounter any issues:
 1. Check existing [Issues](https://github.com/zenmeraki7/credit-risk-engine/issues)
-2. Create a new issue with:
-   - Clear description
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Screenshots (if applicable)
-
-### Feature Requests
-
-Have an idea? Open a [Feature Request](https://github.com/zenmeraki7/credit-risk-engine/issues/new?labels=enhancement)
+2. Create a new issue with clear description, steps to reproduce, and expected vs actual behavior
 
 ### Questions
 
 For questions about usage or implementation:
-- Check the [Wiki](https://github.com/zenmeraki7/credit-risk-engine/wiki)
-- Review [Discussions](https://github.com/zenmeraki7/credit-risk-engine/discussions)
 - Email: support@zenmeraki.dev
-
----
-
-## ⚡ Quick Start Checklist
-
-- [ ] Clone repository
-- [ ] Install Python 3.8+
-- [ ] Create virtual environment
-- [ ] Install requirements
-- [ ] Download/train model (`credit_risk_assets.pkl`)
-- [ ] Run `streamlit run test.py`
-- [ ] Test with sample application
-- [ ] Review decision output
-- [ ] Check audit logs
-- [ ] Customize for your use case
-
----
-
-## 🌟 Star History
-
-If you find this project useful, please consider giving it a ⭐!
-
-[![Star History Chart](https://api.star-history.com/svg?repos=zenmeraki7/credit-risk-engine&type=Date)](https://star-history.com/#zenmeraki7/credit-risk-engine&Date)
+- GitHub Discussions: [Ask a question](https://github.com/zenmeraki7/credit-risk-engine/discussions)
 
 ---
 
@@ -651,6 +563,8 @@ If you find this project useful, please consider giving it a ⭐!
 <div align="center">
 
 **Made with ❤️ for the fintech community**
+
+If you find this project useful, please consider giving it a ⭐!
 
 [⬆ Back to Top](#-credit-risk-assessment-platform)
 
