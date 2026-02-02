@@ -4388,7 +4388,6 @@ st.markdown("""
         border: 1px solid var(--sage);
         padding: 0.75rem;
         font-size: 1rem;
-        background-color: white;
     }
     
     .stNumberInput > div > div > input:focus,
@@ -4670,21 +4669,22 @@ st.markdown("""
         background-color: white;
     }
     
-    /* ================== FIXES FOR WHITE TEXT ================== */
-    /* Input text color */
+    /* ================== FIXES FOR TEXT VISIBILITY ================== */
+    /* Input text color - WHITE on DARK background for readability */
     .stNumberInput > div > div > input,
     .stSelectbox > div > div > select,
     .stTextInput > div > div > input {
-        color: #333333 !important;
+        color: #FFFFFF !important;
+        background-color: #2D3748 !important;
     }
     
-    /* Radio button text */
+    /* Radio button text - DARK on LIGHT background */
     .stRadio > div > label,
     .stRadio > div > label > div > p {
         color: #333333 !important;
     }
     
-    /* Checkbox text */
+    /* Checkbox text - DARK on LIGHT background */
     .stCheckbox > label,
     .stCheckbox > label > div > p {
         color: #333333 !important;
@@ -4695,19 +4695,20 @@ st.markdown("""
         color: #333333 !important;
     }
     
-    /* Placeholder text */
+    /* Placeholder text - Light gray for visibility */
     ::placeholder {
-        color: #718096 !important;
+        color: #A0AEC0 !important;
+        opacity: 1 !important;
     }
     
-    /* Sidebar text */
+    /* Sidebar text - DARK for readability */
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] div,
     [data-testid="stSidebar"] span {
         color: #333333 !important;
     }
     
-    /* Form labels */
+    /* Form labels - Keep GREEN for branding */
     .stNumberInput label,
     .stSelectbox label,
     .stTextInput label,
@@ -4717,8 +4718,8 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* General text color for all elements */
-    body, p, div, span, h1, h2, h3, h4, h5, h6 {
+    /* General text color for body content */
+    .main p, .main div, .main span {
         color: #333333 !important;
     }
     
@@ -4734,6 +4735,60 @@ st.markdown("""
     .stAlert div,
     .stAlert span {
         color: inherit !important;
+    }
+    
+    /* Fix for dropdown select options - WHITE on DARK */
+    .stSelectbox select option {
+        color: #FFFFFF !important;
+        background-color: #2D3748 !important;
+    }
+    
+    /* Fix for number input increment/decrement buttons */
+    .stNumberInput button {
+        color: #FFFFFF !important;
+        background-color: #4A5568 !important;
+    }
+    
+    .stNumberInput button:hover {
+        background-color: var(--fern-green) !important;
+    }
+    
+    /* Input focus state - Maintain WHITE text on DARK background */
+    .stNumberInput > div > div > input:focus,
+    .stSelectbox > div > div > select:focus,
+    .stTextInput > div > div > input:focus {
+        color: #FFFFFF !important;
+        background-color: #2D3748 !important;
+        border-color: var(--fern-green);
+        box-shadow: 0 0 0 3px rgba(88, 112, 66, 0.1);
+    }
+    
+    /* Ensure all input fields maintain dark background with white text */
+    input[type="number"],
+    input[type="text"],
+    select {
+        color: #FFFFFF !important;
+        background-color: #2D3748 !important;
+    }
+    
+    /* Fix for disabled inputs */
+    input:disabled,
+    select:disabled {
+        color: #A0AEC0 !important;
+        background-color: #1A202C !important;
+        opacity: 0.6;
+    }
+    
+    /* Ensure dropdown arrow is visible */
+    .stSelectbox svg {
+        fill: #FFFFFF !important;
+    }
+    
+    /* Fix for input number spinner buttons */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+        opacity: 1;
+        background-color: #4A5568;
     }
     /* ================== END OF FIXES ================== */
     
@@ -4864,7 +4919,7 @@ APPROVAL_REASONS = {
     'stable_employment': 'Stable employment history ({tenure} months)',
     'low_foir': 'Affordable EMI burden (FOIR: {foir}%)',
     'clean_payment': 'Clean payment history (No DPD)',
-    'strong_income': 'Strong monthly income (₹{income:,})',
+    'strong_income': 'Strong monthly income (Rs.{income:,})',
     'low_utilization': 'Low credit utilization ({util}%)',
 }
 
@@ -4872,7 +4927,7 @@ REJECTION_REASONS = {
     'low_bureau': 'Credit score below minimum ({score} < 550)',
     'high_foir': 'EMI burden too high (FOIR: {foir}% > 50%)',
     'severe_dpd': 'Severe payment delays ({dpd} instances of 90+ DPD)',
-    'low_income': 'Income below minimum threshold (₹{income:,} < ₹15,000)',
+    'low_income': 'Income below minimum threshold (Rs.{income:,} < Rs.15,000)',
     'short_employment': 'Insufficient employment tenure ({tenure} months < 6)',
     'bankruptcy': 'Active bankruptcy detected',
     'kyc_failed': 'KYC verification not completed',
@@ -5111,7 +5166,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     business_vintage = customer_dict.get('business_vintage_years', 0)
     
     if monthly_income < 15000:
-        policy_checks['income'] = f"❌ Income ₹{monthly_income:,.0f} (Min: ₹15,000)"
+        policy_checks['income'] = f"❌ Income Rs.{monthly_income:,.0f} (Min: Rs.15,000)"
         return {
             'decision': "REJECT",
             'reason': "Policy Gate: Income below minimum",
@@ -5121,7 +5176,7 @@ def make_hybrid_decision_enhanced(customer_dict):
             'risk_score': 0,
             'pd_percentage': 100.0
         }
-    policy_checks['income'] = f"✅ Income ₹{monthly_income:,.0f}"
+    policy_checks['income'] = f"✅ Income Rs.{monthly_income:,.0f}"
     
     if employment_type == 'Salaried' and employment_tenure < 6:
         policy_checks['tenure'] = f"❌ Tenure {employment_tenure} months (Min: 6)"
@@ -5320,7 +5375,7 @@ def render_decision_header(decision_data, customer_data):
     with col3:
         st.markdown(f"""
             <div class="stat-card">
-                <div class="stat-number">₹{approved_amount:,.0f}</div>
+                <div class="stat-number">Rs.{approved_amount:,.0f}</div>
                 <div class="stat-label">Loan Amount</div>
             </div>
         """, unsafe_allow_html=True)
@@ -5700,27 +5755,27 @@ elif page == "👤 Assessment":
         
         with col3:
             active_loans = st.number_input("Active Loans", 0, 10, 1)
-            existing_emi = st.number_input("Existing Total EMI (₹)", 0, 200000, 15000, 1000)
+            existing_emi = st.number_input("Existing Total EMI (Rs.)", 0, 200000, 15000, 1000)
         
         # Income & Financial
         st.markdown('<p class="section-header">💰 Income & Financial</p>', unsafe_allow_html=True)
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            avg_salary = st.number_input("Monthly Income (₹)", 0, 1000000, 50000, 5000)
-            amt_income = st.number_input("Annual Income (₹)", 0, 10000000, 600000, 10000)
+            avg_salary = st.number_input("Monthly Income (Rs.)", 0, 1000000, 50000, 5000)
+            amt_income = st.number_input("Annual Income (Rs.)", 0, 10000000, 600000, 10000)
         
         with col2:
-            net_surplus = st.number_input("Net Cash Surplus (₹)", -100000, 500000, 20000, 5000)
+            net_surplus = st.number_input("Net Cash Surplus (Rs.)", -100000, 500000, 20000, 5000)
             salary_stability = st.selectbox("Salary Stability", ['STABLE', 'MODERATE', 'UNSTABLE'])
         
         with col3:
-            loan_amount = st.number_input("Loan Amount (₹)", 0, 5000000, 180000, 10000)
+            loan_amount = st.number_input("Loan Amount (Rs.)", 0, 5000000, 180000, 10000)
             loan_tenure = st.number_input("Tenure (months)", 3, 360, 24)
         
         with col4:
             interest_rate = st.number_input("Interest Rate (%)", 8.0, 20.0, 10.5, 0.5)
-            amt_annuity = st.number_input("Requested EMI (₹)", 0, 200000, 8500, 500)
+            amt_annuity = st.number_input("Requested EMI (Rs.)", 0, 200000, 8500, 500)
         
         st.markdown("<br>", unsafe_allow_html=True)
         submitted = st.form_submit_button("🔍 Assess Credit Risk", use_container_width=True)
@@ -5795,9 +5850,9 @@ elif page == "👤 Assessment":
                     "💰 Financial", 
                     "💰",
                     {
-                        "Monthly Income": f"₹{avg_salary:,}",
-                        "Annual Income": f"₹{amt_income:,}",
-                        "Net Surplus": f"₹{net_surplus:,}",
+                        "Monthly Income": f"Rs.{avg_salary:,}",
+                        "Annual Income": f"Rs.{amt_income:,}",
+                        "Net Surplus": f"Rs.{net_surplus:,}",
                         "Stability": salary_stability
                     }
                 )
@@ -5811,7 +5866,7 @@ elif page == "👤 Assessment":
                         "DPD 90+": dpd_90_6m,
                         "Utilization": f"{credit_utilization}%",
                         "Recent Inquiries": recent_inquiries,
-                        "Existing EMI": f"₹{existing_emi:,}"
+                        "Existing EMI": f"Rs.{existing_emi:,}"
                     }
                 )
                 
@@ -5819,10 +5874,10 @@ elif page == "👤 Assessment":
                     "📋 Loan Request", 
                     "📋",
                     {
-                        "Amount": f"₹{loan_amount:,}",
+                        "Amount": f"Rs.{loan_amount:,}",
                         "Tenure": f"{loan_tenure} months",
                         "Interest Rate": f"{interest_rate}%",
-                        "Requested EMI": f"₹{amt_annuity:,}"
+                        "Requested EMI": f"Rs.{amt_annuity:,}"
                     }
                 )
         
@@ -5886,16 +5941,16 @@ elif page == "👤 Assessment":
                     "Affordability",
                     "💰",
                     {
-                        f"Monthly Income: ₹{avg_salary:,}": "",
+                        f"Monthly Income: Rs.{avg_salary:,}": "",
                         f"FOIR: {foir:.1f}%": "",
-                        f"Total EMI: ₹{total_emi:,}": "",
-                        f"Net Disposable: ₹{net_disp:,}": ""
+                        f"Total EMI: Rs.{total_emi:,}": "",
+                        f"Net Disposable: Rs.{net_disp:,}": ""
                     },
                     {
-                        f"Monthly Income: ₹{avg_salary:,}": "pass",
+                        f"Monthly Income: Rs.{avg_salary:,}": "pass",
                         f"FOIR: {foir:.1f}%": "pass" if foir <= 50 else "fail",
-                        f"Total EMI: ₹{total_emi:,}": "pass",
-                        f"Net Disposable: ₹{net_disp:,}": "pass" if net_disp >= 10000 else "warning"
+                        f"Total EMI: Rs.{total_emi:,}": "pass",
+                        f"Net Disposable: Rs.{net_disp:,}": "pass" if net_disp >= 10000 else "warning"
                     }
                 )
             
@@ -5908,49 +5963,30 @@ elif page == "👤 Assessment":
             
             # Action buttons
             col1, col2, col3 = st.columns([1, 1, 2])
-            #with col1:
-                # if st.button("📥 Download Report", use_container_width=True):
-                    # st.info("📄 Report generation coming soon...")
-        pdf_buffer = generate_decision_pdf(
-            decision_data={
-                **st.session_state.setdefault("decision_data", {}),
-                "application_id": app_id,
-                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            },
-            customer_data=customer_data,
-            affordability_data=st.session_state["decision_data"].get("affordability_data", {}),
-            reasons=reasons
-        )
-        st.download_button(
-            "📥 Download Report (PDF)",
-            pdf_buffer,
-            f"credit_decision_{app_id}.pdf",
-            "application/pdf",
-            use_container_width=True
-              )
-
-#     pdf_buffer = generate_decision_pdf(
-#     decision_data={
-#         **st.session_state["decision_data"],
-#         "application_id": app_id,
-#         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S")
-#     },
-#     customer_data=customer_data,
-#     affordability_data=st.session_state["decision_data"].get("affordability_data", {}),
-#     reasons=reasons
-# )
-
-# st.download_button(
-#     "📥 Download Report (PDF)",
-#     pdf_buffer,
-#     f"credit_decision_{app_id}.pdf",
-#     "application/pdf",
-#     width="stretch"
-# )
-
-        with col2:
-            if st.button("🔄 Re-Evaluate", use_container_width=True):
-             st.rerun()
+            
+            with col1:
+                try:
+                    pdf_buffer = generate_decision_pdf(
+                        decision_data=decision_data,
+                        customer_data=customer_data,
+                        affordability_data=decision_data.get('affordability_data', {}),
+                        reasons=reasons
+                    )
+                    
+                    st.download_button(
+                        label="📥 Download Report (PDF)",
+                        data=pdf_buffer,
+                        file_name=f"credit_decision_{app_id}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Error generating PDF: {str(e)}")
+                    st.info("Please ensure reportlab is installed: pip install reportlab")
+            
+            with col2:
+                if st.button("🔄 Re-Evaluate", use_container_width=True):
+                    st.rerun()
         
         with tab3:
             st.markdown('<p class="section-header">Model Analysis</p>', unsafe_allow_html=True)
@@ -5993,7 +6029,6 @@ elif page == "👤 Assessment":
             
             st.json(audit_log)
             
-            import json
             audit_json = json.dumps(audit_log, indent=2)
             st.download_button(
                 "📥 Download Audit Log",
