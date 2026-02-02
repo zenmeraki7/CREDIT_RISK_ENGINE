@@ -4122,81 +4122,12 @@ from utils.pdf_generator import generate_decision_pdf
 # PAGE CONFIGURATION
 # =============================================================================
 
-# st.set_page_config(
-#     page_title="Credit Risk Assessment",
-#     page_icon="💳",
-#     layout="wide",
-#     initial_sidebar_state="expanded"
-# )
-
-import streamlit as st
-
 st.set_page_config(
     page_title="Credit Risk Assessment",
     page_icon="💳",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-st.markdown("""
-<style>
-
-/* PAGE BACKGROUND */
-.stApp {
-    background-color: #ffffff;
-}
-
-/* HEADERS */
-.main-header {
-    font-size: 32px;
-    font-weight: 700;
-    color: #3d4f2f;
-}
-
-/* SECTION TITLE */
-.section-header {
-    font-size: 22px;
-    font-weight: 600;
-    border-bottom: 2px solid #9bb36b;
-    margin-bottom: 16px;
-}
-
-/* CARDS */
-.info-card, .decision-card {
-    background-color: #f7f3e8;
-    padding: 16px;
-    border-radius: 10px;
-}
-
-/* INPUTS */
-input, textarea {
-    background-color: #2f3b4a !important;
-    color: white !important;
-    border-radius: 8px !important;
-}
-
-/* DROPDOWNS */
-div[data-baseweb="select"] > div {
-    background-color: #2f3b4a !important;
-    color: white !important;
-}
-
-/* BUTTONS */
-.stButton > button {
-    background-color: #5f7a3a;
-    color: white;
-    border-radius: 6px;
-}
-
-/* SIDEBAR */
-section[data-testid="stSidebar"] {
-    background-color: #f6f3e8;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-
 
 # =============================================================================
 # SAGE GREEN AND YELLOW THEME CSS
