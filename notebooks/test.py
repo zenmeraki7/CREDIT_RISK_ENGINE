@@ -5521,7 +5521,7 @@ def create_modern_bar_chart(class_probs):
         'Probability': list(class_probs.values())
     })
     
-    colors = {'APPROVE': '#ed8936','REVIEW': '#48bb78',  'REJECT': '#f56565'}
+    colors = {'REVIEW': '#ed8936','APPROVE': '#48bb78',  'REJECT': '#f56565'}
     
     fig = px.bar(
         df, 
