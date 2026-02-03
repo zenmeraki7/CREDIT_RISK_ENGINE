@@ -6380,5 +6380,5 @@ elif page == "ℹ️ About":
         """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: gray;'><p>© 2025 Hybrid Credit Risk System v8.0 | Zen Meraki</p></div>", 
+st.markdown("<div style='text-align: center; color: gray;'><p>© 2026 Hybrid Credit Risk System v8.0 | Zen Meraki</p></div>", 
     unsafe_allow_html=True)
