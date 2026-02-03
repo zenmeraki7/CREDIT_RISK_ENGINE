@@ -6325,7 +6325,7 @@ elif page == "ℹ️ About":
             <div class="info-card-content">
                 <p><strong>Version:</strong> 8.0 - Sage Green & Yellow Theme</p>
                 <p><strong>Developer:</strong> Zen Meraki</p>
-                <p><strong>Date:</strong> January 2025</p>
+                <p><strong>Date:</strong> January 2026</p>
                 <br>
                 <p>
                     A comprehensive credit risk evaluation system combining hard policy rules,
