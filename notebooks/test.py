@@ -4092,7 +4092,7 @@ Enhanced with Modern UI/UX Design
 Run with: streamlit run test.py
 
 Author: Zen Meraki  
-Date: January 2025
+Date: January 2026
 VERSION: 8.0 - Sage Green & Yellow Professional Interface
 """
 
@@ -5521,7 +5521,7 @@ def create_modern_bar_chart(class_probs):
         'Probability': list(class_probs.values())
     })
     
-    colors = {'APPROVE': '#ed8936', 'REVIEW': '#48bb78', 'REJECT': '#f56565'}
+    colors = {'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'}
     
     fig = px.bar(
         df, 
