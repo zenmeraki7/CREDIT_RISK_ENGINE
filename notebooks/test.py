@@ -7324,6 +7324,11 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
 
 
 
+
+# =============================================================================
+# RISK SCORE CALCULATION
+# =============================================================================
+
 def bureau_to_pd(bureau_score):
     """Convert bureau score to PD percentage"""
     if bureau_score >= 750:
@@ -7339,6 +7344,7 @@ def bureau_to_pd(bureau_score):
     else:
         return 15.0
 
+
 def foir_to_pd(foir):
     """Convert FOIR to PD percentage"""
     if foir <= 30:
@@ -7349,6 +7355,7 @@ def foir_to_pd(foir):
         return 5.5
     else:
         return 12.0
+
 
 def confidence_to_pd(confidence):
     """Convert ML confidence to PD percentage"""
@@ -7362,6 +7369,7 @@ def confidence_to_pd(confidence):
         return 6.0
     else:
         return 10.0
+
 
 def calculate_final_pd(bureau_score, foir, confidence):
     """Calculate final Probability of Default (PD) percentage"""
@@ -7378,6 +7386,7 @@ def calculate_final_pd(bureau_score, foir, confidence):
     final_pd = max(0.5, min(final_pd, 15.0))
     return round(final_pd, 2)
 
+
 def calculate_final_risk_score(bureau_score, ml_confidence, foir):
     """Calculate final risk score (0-1000)"""
     bureau_points = (bureau_score / 900) * 400
@@ -7385,6 +7394,8 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir):
     foir_points = max(0, (1 - foir/50) * 200)
     total_score = int(bureau_points + ml_points + foir_points)
     return min(max(total_score, 0), 1000)
+
+
 
 
 # =============================================================================
