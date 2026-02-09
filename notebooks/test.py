@@ -7312,79 +7312,10 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
 
 # =============================================================================
 # RISK SCORE CALCULATION
-# =============================================================================
-
-# def calculate_final_risk_score(bureau_score, ml_confidence, foir):
-#     """Calculate final risk score (0-1000)"""
-#     bureau_points = (bureau_score / 900) * 400
-#     ml_points = (ml_confidence / 100) * 400
-#     foir_points = max(0, (1 - foir/50) * 200)
-#     total_score = int(bureau_points + ml_points + foir_points)
-#     return min(max(total_score, 0), 1000)
+# ============================================================================
 
 
 
-
-# =============================================================================
-# RISK SCORE CALCULATION
-# =============================================================================
-
-def bureau_to_pd(bureau_score):
-    """Convert bureau score to PD percentage"""
-    if bureau_score >= 750:
-        return 1.0
-    elif bureau_score >= 700:
-        return 2.0
-    elif bureau_score >= 650:
-        return 4.0
-    elif bureau_score >= 600:
-        return 6.5
-    elif bureau_score >= 550:
-        return 10.0
-    else:
-        return 15.0
-
-
-def foir_to_pd(foir):
-    """Convert FOIR to PD percentage"""
-    if foir <= 30:
-        return 1.5
-    elif foir <= 40:
-        return 3.0
-    elif foir <= 50:
-        return 5.5
-    else:
-        return 12.0
-
-
-def confidence_to_pd(confidence):
-    """Convert ML confidence to PD percentage"""
-    if confidence >= 90:
-        return 1.0
-    elif confidence >= 80:
-        return 2.5
-    elif confidence >= 70:
-        return 4.0
-    elif confidence >= 60:
-        return 6.0
-    else:
-        return 10.0
-
-
-def calculate_final_pd(bureau_score, foir, confidence):
-    """Calculate final Probability of Default (PD) percentage"""
-    bureau_pd = bureau_to_pd(bureau_score)
-    foir_pd = foir_to_pd(foir)
-    ml_pd = confidence_to_pd(confidence)
-    
-    final_pd = (
-        0.40 * bureau_pd +
-        0.35 * foir_pd +
-        0.25 * ml_pd
-    )
-    
-    final_pd = max(0.5, min(final_pd, 15.0))
-    return round(final_pd, 2)
 
 
 def calculate_final_risk_score(bureau_score, ml_confidence, foir):
@@ -7394,6 +7325,79 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir):
     foir_points = max(0, (1 - foir/50) * 200)
     total_score = int(bureau_points + ml_points + foir_points)
     return min(max(total_score, 0), 1000)
+
+
+
+
+# # =============================================================================
+# # RISK SCORE CALCULATION
+# # =============================================================================
+
+# def bureau_to_pd(bureau_score):
+#     """Convert bureau score to PD percentage"""
+#     if bureau_score >= 750:
+#         return 1.0
+#     elif bureau_score >= 700:
+#         return 2.0
+#     elif bureau_score >= 650:
+#         return 4.0
+#     elif bureau_score >= 600:
+#         return 6.5
+#     elif bureau_score >= 550:
+#         return 10.0
+#     else:
+#         return 15.0
+
+
+# def foir_to_pd(foir):
+#     """Convert FOIR to PD percentage"""
+#     if foir <= 30:
+#         return 1.5
+#     elif foir <= 40:
+#         return 3.0
+#     elif foir <= 50:
+#         return 5.5
+#     else:
+#         return 12.0
+
+
+# def confidence_to_pd(confidence):
+#     """Convert ML confidence to PD percentage"""
+#     if confidence >= 90:
+#         return 1.0
+#     elif confidence >= 80:
+#         return 2.5
+#     elif confidence >= 70:
+#         return 4.0
+#     elif confidence >= 60:
+#         return 6.0
+#     else:
+#         return 10.0
+
+
+# def calculate_final_pd(bureau_score, foir, confidence):
+#     """Calculate final Probability of Default (PD) percentage"""
+#     bureau_pd = bureau_to_pd(bureau_score)
+#     foir_pd = foir_to_pd(foir)
+#     ml_pd = confidence_to_pd(confidence)
+    
+#     final_pd = (
+#         0.40 * bureau_pd +
+#         0.35 * foir_pd +
+#         0.25 * ml_pd
+#     )
+    
+#     final_pd = max(0.5, min(final_pd, 15.0))
+#     return round(final_pd, 2)
+
+
+# def calculate_final_risk_score(bureau_score, ml_confidence, foir):
+#     """Calculate final risk score (0-1000)"""
+#     bureau_points = (bureau_score / 900) * 400
+#     ml_points = (ml_confidence / 100) * 400
+#     foir_points = max(0, (1 - foir/50) * 200)
+#     total_score = int(bureau_points + ml_points + foir_points)
+#     return min(max(total_score, 0), 1000)
 
 
 
