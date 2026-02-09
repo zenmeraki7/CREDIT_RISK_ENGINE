@@ -7749,7 +7749,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     
     risk_score = calculate_final_risk_score(bureau_score, confidence, foir)
     pd_percentage = max(0, min(100, (1 - confidence/100) * 10))
-    pd_percentage = calculate_final_pd(bureau_score, foir, confidence)
+    ##pd_percentage = calculate_final_pd(bureau_score, foir, confidence)
 
 
     return {
