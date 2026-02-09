@@ -7327,149 +7327,12 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir):
     return min(max(total_score, 0), 1000)
 
 
-
-
-# # =============================================================================
-# # RISK SCORE CALCULATION
-# # =============================================================================
-
-# def bureau_to_pd(bureau_score):
-#     """Convert bureau score to PD percentage"""
-#     if bureau_score >= 750:
-#         return 1.0
-#     elif bureau_score >= 700:
-#         return 2.0
-#     elif bureau_score >= 650:
-#         return 4.0
-#     elif bureau_score >= 600:
-#         return 6.5
-#     elif bureau_score >= 550:
-#         return 10.0
-#     else:
-#         return 15.0
-
-
-# def foir_to_pd(foir):
-#     """Convert FOIR to PD percentage"""
-#     if foir <= 30:
-#         return 1.5
-#     elif foir <= 40:
-#         return 3.0
-#     elif foir <= 50:
-#         return 5.5
-#     else:
-#         return 12.0
-
-
-# def confidence_to_pd(confidence):
-#     """Convert ML confidence to PD percentage"""
-#     if confidence >= 90:
-#         return 1.0
-#     elif confidence >= 80:
-#         return 2.5
-#     elif confidence >= 70:
-#         return 4.0
-#     elif confidence >= 60:
-#         return 6.0
-#     else:
-#         return 10.0
-
-
-# def calculate_final_pd(bureau_score, foir, confidence):
-#     """Calculate final Probability of Default (PD) percentage"""
-#     bureau_pd = bureau_to_pd(bureau_score)
-#     foir_pd = foir_to_pd(foir)
-#     ml_pd = confidence_to_pd(confidence)
-    
-#     final_pd = (
-#         0.40 * bureau_pd +
-#         0.35 * foir_pd +
-#         0.25 * ml_pd
-#     )
-    
-#     final_pd = max(0.5, min(final_pd, 15.0))
-#     return round(final_pd, 2)
-
-
-# def calculate_final_risk_score(bureau_score, ml_confidence, foir):
-#     """Calculate final risk score (0-1000)"""
-#     bureau_points = (bureau_score / 900) * 400
-#     ml_points = (ml_confidence / 100) * 400
-#     foir_points = max(0, (1 - foir/50) * 200)
-#     total_score = int(bureau_points + ml_points + foir_points)
-#     return min(max(total_score, 0), 1000)
-
-
-
-
 # =============================================================================
 # BATCH PREDICTION ENGINE
 # =============================================================================
 
-# def process_batch_predictions(df: pd.DataFrame) -> pd.DataFrame:
-#     """Process batch predictions for multiple records"""
-#     results = []
-    
-#     for idx, row in df.iterrows():
-#         customer_dict = row.to_dict()
-        
-#         # Convert yes/no to boolean
-#         for key, value in customer_dict.items():
-#             if isinstance(value, str):
-#                 if value.lower() in ['yes', 'true', '1']:
-#                     customer_dict[key] = True
-#                 elif value.lower() in ['no', 'false', '0']:
-#                     customer_dict[key] = False
-        
-#         # Add missing required fields with defaults
-#         required_fields = {
-#             'kyc_verified': True,
-#             'bankruptcy_flag': False,
-#             'fraud_flag': False,
-#             'dpd_90_count_6m': 0,
-#             'recent_inquiries_3m': 0,
-#             'active_loans_count': 0,
-#             'existing_emi': 0,
-#             'salary_stability_flag': 'STABLE'
-#         }
-        
-#         for field, default in required_fields.items():
-#             if field not in customer_dict:
-#                 customer_dict[field] = default
-        
-#         # Get decision
-#         decision_data = make_hybrid_decision_enhanced(customer_dict)
-        
-#         # Generate application ID
-#         app_id = f"BATCH_{idx+1:04d}"
-        
-#         # Prepare result
-#         result = {
-#             'application_id': app_id,
-#             'decision': decision_data['decision'],
-#             'risk_score': decision_data['risk_score'],
-#             'pd_percentage': decision_data['pd_percentage'],
-#             'confidence': round(decision_data['confidence'], 2),
-#             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-#         }
-        
-#         # Add key customer data
-#         result.update({
-#             'age': customer_dict.get('age', ''),
-#             'employment_type': customer_dict.get('employment_type', ''),
-#             'bureau_score': customer_dict.get('bureau_score', ''),
-#             'monthly_income': customer_dict.get('avg_salary_6m', ''),
-#             'loan_amount': customer_dict.get('loan_amount', ''),
-#             'foir_percentage': decision_data.get('affordability_data', {}).get('foir_percentage', 0)
-#         })
-        
-#         results.append(result)
-    
-#     return pd.DataFrame(results)
-
-
 def process_batch_predictions(df: pd.DataFrame) -> pd.DataFrame:
-    """Process batch predictions for multiple records with complete information"""
+    """Process batch predictions for multiple records"""
     results = []
     
     for idx, row in df.iterrows():
@@ -7492,116 +7355,178 @@ def process_batch_predictions(df: pd.DataFrame) -> pd.DataFrame:
             'recent_inquiries_3m': 0,
             'active_loans_count': 0,
             'existing_emi': 0,
-            'salary_stability_flag': 'STABLE',
-            'credit_utilization_pct': 30,
-            'employment_tenure_months': 24,
-            'business_vintage_years': 0,
-            'net_cash_surplus_6m': 20000,
-            'loan_tenure_months': 24,
-            'interest_rate': 10.5,
-            'AMT_ANNUITY': 8500,
-            'AMT_INCOME_TOTAL': 600000
+            'salary_stability_flag': 'STABLE'
         }
         
         for field, default in required_fields.items():
-            if field not in customer_dict or pd.isna(customer_dict[field]):
+            if field not in customer_dict:
                 customer_dict[field] = default
         
         # Get decision
-        try:
-            decision_data = make_hybrid_decision_enhanced(customer_dict)
-            
-            # Generate reasons - THIS IS NEW!
-            reasons = generate_reason_codes(
-                decision=decision_data['decision'],
-                customer_data=customer_dict,
-                affordability_data=decision_data.get('affordability_data', {}),
-                policy_checks=decision_data['policy_checks']
-            )
-            
-            # Generate application ID
-            app_id = f"BATCH_{idx+1:04d}"
-            
-            # Get affordability data
-            affordability = decision_data.get('affordability_data', {})
-            
-            # Prepare comprehensive result with ALL columns
-            result = {
-                'application_id': app_id,
-                'decision': decision_data['decision'],
-                'risk_score': decision_data['risk_score'],
-                'pd_percentage': decision_data['pd_percentage'],
-                'confidence': round(decision_data['confidence'], 2),
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                
-                # ===== REASON CODES - THIS IS WHAT YOU WANTED! =====
-                'reason_1': reasons[0] if len(reasons) > 0 else '',
-                'reason_2': reasons[1] if len(reasons) > 1 else '',
-                'reason_3': reasons[2] if len(reasons) > 2 else '',
-                # ===================================================
-                
-                # Customer Details
-                'age': customer_dict.get('age', ''),
-                'employment_type': customer_dict.get('employment_type', ''),
-                'bureau_score': customer_dict.get('bureau_score', ''),
-                'monthly_income': customer_dict.get('avg_salary_6m', ''),
-                'loan_amount': customer_dict.get('loan_amount', ''),
-                'loan_tenure_months': customer_dict.get('loan_tenure_months', ''),
-                'interest_rate': customer_dict.get('interest_rate', ''),
-                
-                # Affordability Metrics
-                'new_emi': affordability.get('new_emi', 0),
-                'existing_emi': affordability.get('existing_emi', 0),
-                'total_emi': affordability.get('total_emi', 0),
-                'foir_percentage': round(affordability.get('foir_percentage', 0), 2),
-                'net_disposable': affordability.get('net_disposable', 0),
-                'affordability_status': affordability.get('status', 'N/A'),
-                
-                # Credit Bureau Details
-                'dpd_90_count': customer_dict.get('dpd_90_count_6m', 0),
-                'credit_utilization': customer_dict.get('credit_utilization_pct', 0),
-                'recent_inquiries': customer_dict.get('recent_inquiries_3m', 0),
-                'active_loans': customer_dict.get('active_loans_count', 0),
-                
-                # Employment Details
-                'employment_tenure': customer_dict.get('employment_tenure_months', 0),
-                'business_vintage': customer_dict.get('business_vintage_years', 0),
-                'salary_stability': customer_dict.get('salary_stability_flag', ''),
-                
-                # Policy Checks Summary
-                'kyc_status': 'Verified' if customer_dict.get('kyc_verified', True) else 'Not Verified',
-                'bankruptcy': 'Yes' if customer_dict.get('bankruptcy_flag', False) else 'No',
-                'fraud': 'Yes' if customer_dict.get('fraud_flag', False) else 'No',
-                
-                # Model Probabilities
-                'prob_approve': round(decision_data.get('class_probs', {}).get('APPROVE', 0), 2),
-                'prob_review': round(decision_data.get('class_probs', {}).get('REVIEW', 0), 2),
-                'prob_reject': round(decision_data.get('class_probs', {}).get('REJECT', 0), 2),
-            }
-            
-        except Exception as e:
-            # If processing fails, create error record
-            result = {
-                'application_id': f"BATCH_{idx+1:04d}",
-                'decision': 'ERROR',
-                'risk_score': 0,
-                'pd_percentage': 0,
-                'confidence': 0,
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'reason_1': '',
-                'reason_2': '',
-                'reason_3': '',
-                'age': customer_dict.get('age', ''),
-                'employment_type': customer_dict.get('employment_type', ''),
-                'bureau_score': customer_dict.get('bureau_score', ''),
-                'monthly_income': customer_dict.get('avg_salary_6m', ''),
-                'loan_amount': customer_dict.get('loan_amount', ''),
-                'error_message': str(e)
-            }
+        decision_data = make_hybrid_decision_enhanced(customer_dict)
+        
+        # Generate application ID
+        app_id = f"BATCH_{idx+1:04d}"
+        
+        # Prepare result
+        result = {
+            'application_id': app_id,
+            'decision': decision_data['decision'],
+            'risk_score': decision_data['risk_score'],
+            'pd_percentage': decision_data['pd_percentage'],
+            'confidence': round(decision_data['confidence'], 2),
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # Add key customer data
+        result.update({
+            'age': customer_dict.get('age', ''),
+            'employment_type': customer_dict.get('employment_type', ''),
+            'bureau_score': customer_dict.get('bureau_score', ''),
+            'monthly_income': customer_dict.get('avg_salary_6m', ''),
+            'loan_amount': customer_dict.get('loan_amount', ''),
+            'foir_percentage': decision_data.get('affordability_data', {}).get('foir_percentage', 0)
+        })
         
         results.append(result)
     
     return pd.DataFrame(results)
+
+
+# def process_batch_predictions(df: pd.DataFrame) -> pd.DataFrame:
+#     """Process batch predictions for multiple records with complete information"""
+#     results = []
+    
+#     for idx, row in df.iterrows():
+#         customer_dict = row.to_dict()
+        
+#         # Convert yes/no to boolean
+#         for key, value in customer_dict.items():
+#             if isinstance(value, str):
+#                 if value.lower() in ['yes', 'true', '1']:
+#                     customer_dict[key] = True
+#                 elif value.lower() in ['no', 'false', '0']:
+#                     customer_dict[key] = False
+        
+#         # Add missing required fields with defaults
+#         required_fields = {
+#             'kyc_verified': True,
+#             'bankruptcy_flag': False,
+#             'fraud_flag': False,
+#             'dpd_90_count_6m': 0,
+#             'recent_inquiries_3m': 0,
+#             'active_loans_count': 0,
+#             'existing_emi': 0,
+#             'salary_stability_flag': 'STABLE',
+#             'credit_utilization_pct': 30,
+#             'employment_tenure_months': 24,
+#             'business_vintage_years': 0,
+#             'net_cash_surplus_6m': 20000,
+#             'loan_tenure_months': 24,
+#             'interest_rate': 10.5,
+#             'AMT_ANNUITY': 8500,
+#             'AMT_INCOME_TOTAL': 600000
+#         }
+        
+#         for field, default in required_fields.items():
+#             if field not in customer_dict or pd.isna(customer_dict[field]):
+#                 customer_dict[field] = default
+        
+#         # Get decision
+#         try:
+#             decision_data = make_hybrid_decision_enhanced(customer_dict)
+            
+#             # Generate reasons - THIS IS NEW!
+#             reasons = generate_reason_codes(
+#                 decision=decision_data['decision'],
+#                 customer_data=customer_dict,
+#                 affordability_data=decision_data.get('affordability_data', {}),
+#                 policy_checks=decision_data['policy_checks']
+#             )
+            
+#             # Generate application ID
+#             app_id = f"BATCH_{idx+1:04d}"
+            
+#             # Get affordability data
+#             affordability = decision_data.get('affordability_data', {})
+            
+#             # Prepare comprehensive result with ALL columns
+#             result = {
+#                 'application_id': app_id,
+#                 'decision': decision_data['decision'],
+#                 'risk_score': decision_data['risk_score'],
+#                 'pd_percentage': decision_data['pd_percentage'],
+#                 'confidence': round(decision_data['confidence'], 2),
+#                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                
+#                 # ===== REASON CODES - THIS IS WHAT YOU WANTED! =====
+#                 'reason_1': reasons[0] if len(reasons) > 0 else '',
+#                 'reason_2': reasons[1] if len(reasons) > 1 else '',
+#                 'reason_3': reasons[2] if len(reasons) > 2 else '',
+#                 # ===================================================
+                
+#                 # Customer Details
+#                 'age': customer_dict.get('age', ''),
+#                 'employment_type': customer_dict.get('employment_type', ''),
+#                 'bureau_score': customer_dict.get('bureau_score', ''),
+#                 'monthly_income': customer_dict.get('avg_salary_6m', ''),
+#                 'loan_amount': customer_dict.get('loan_amount', ''),
+#                 'loan_tenure_months': customer_dict.get('loan_tenure_months', ''),
+#                 'interest_rate': customer_dict.get('interest_rate', ''),
+                
+#                 # Affordability Metrics
+#                 'new_emi': affordability.get('new_emi', 0),
+#                 'existing_emi': affordability.get('existing_emi', 0),
+#                 'total_emi': affordability.get('total_emi', 0),
+#                 'foir_percentage': round(affordability.get('foir_percentage', 0), 2),
+#                 'net_disposable': affordability.get('net_disposable', 0),
+#                 'affordability_status': affordability.get('status', 'N/A'),
+                
+#                 # Credit Bureau Details
+#                 'dpd_90_count': customer_dict.get('dpd_90_count_6m', 0),
+#                 'credit_utilization': customer_dict.get('credit_utilization_pct', 0),
+#                 'recent_inquiries': customer_dict.get('recent_inquiries_3m', 0),
+#                 'active_loans': customer_dict.get('active_loans_count', 0),
+                
+#                 # Employment Details
+#                 'employment_tenure': customer_dict.get('employment_tenure_months', 0),
+#                 'business_vintage': customer_dict.get('business_vintage_years', 0),
+#                 'salary_stability': customer_dict.get('salary_stability_flag', ''),
+                
+#                 # Policy Checks Summary
+#                 'kyc_status': 'Verified' if customer_dict.get('kyc_verified', True) else 'Not Verified',
+#                 'bankruptcy': 'Yes' if customer_dict.get('bankruptcy_flag', False) else 'No',
+#                 'fraud': 'Yes' if customer_dict.get('fraud_flag', False) else 'No',
+                
+#                 # Model Probabilities
+#                 'prob_approve': round(decision_data.get('class_probs', {}).get('APPROVE', 0), 2),
+#                 'prob_review': round(decision_data.get('class_probs', {}).get('REVIEW', 0), 2),
+#                 'prob_reject': round(decision_data.get('class_probs', {}).get('REJECT', 0), 2),
+#             }
+            
+#         except Exception as e:
+#             # If processing fails, create error record
+#             result = {
+#                 'application_id': f"BATCH_{idx+1:04d}",
+#                 'decision': 'ERROR',
+#                 'risk_score': 0,
+#                 'pd_percentage': 0,
+#                 'confidence': 0,
+#                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+#                 'reason_1': '',
+#                 'reason_2': '',
+#                 'reason_3': '',
+#                 'age': customer_dict.get('age', ''),
+#                 'employment_type': customer_dict.get('employment_type', ''),
+#                 'bureau_score': customer_dict.get('bureau_score', ''),
+#                 'monthly_income': customer_dict.get('avg_salary_6m', ''),
+#                 'loan_amount': customer_dict.get('loan_amount', ''),
+#                 'error_message': str(e)
+#             }
+        
+#         results.append(result)
+    
+#     return pd.DataFrame(results)
 
 def create_download_link(df: pd.DataFrame, filename: str = "batch_results.csv") -> str:
     """Create a download link for a DataFrame"""
