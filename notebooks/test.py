@@ -1,14 +1,15 @@
+# test.py – Credit Risk Assessment Dashboard
+# Version 8.3 – fully fixed for deployment
+# Run with: streamlit run notebooks/test.py
 
+import sys
+from pathlib import Path
 
-# CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
-"""
-Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
-Enhanced with Modern UI/UX Design
-Run with: streamlit run test.py (from inside the notebooks folder)
-Author: Zen Meraki
-Date: January 2026
-VERSION: 8.2 - COMPLETELY FIXED PD CALCULATION & AUDIT PDF
-"""
+# Add necessary paths to import local modules
+# notebooks folder (for css_styles, stage2_engine, etc.)
+sys.path.insert(0, str(Path(__file__).parent))
+# project root (for utils)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import pandas as pd
@@ -23,12 +24,7 @@ import io
 import base64
 from typing import Dict, List, Any, Union
 import json
-import sys
 import os
-from pathlib import Path
-import css_styles
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # =============================================================================
 # IMPORT CSS – ONLY EXTERNAL IMPORT
@@ -38,30 +34,23 @@ from css_styles import CSS
 warnings.filterwarnings('ignore')
 
 # =============================================================================
-# STAGE 2 ENGINE – ROBUST FALLBACK
+# PAGE CONFIGURATION – MUST BE THE FIRST STREAMLIT COMMAND
 # =============================================================================
-import streamlit as st
-
-# MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
     page_title="Credit Risk Assessment",
     page_icon="💳",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+st.markdown(CSS, unsafe_allow_html=True)
 
-# then all other imports
-import pandas as pd
-import numpy as np
-from stage2_engine import load_model
-
-model = load_model()
-
-
+# =============================================================================
+# STAGE 2 ENGINE – ROBUST FALLBACK
+# =============================================================================
 try:
     import stage2_engine
     from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
     STAGE2_AVAILABLE = True
-    
 except ImportError:
     stage2_engine = None
     STAGE2_AVAILABLE = False
@@ -144,16 +133,6 @@ def init_session_state():
     if 'stage2_selected_tab' not in st.session_state:
         st.session_state.stage2_selected_tab = "Manual Entry"   # default tab
 
-# =============================================================================
-# PAGE CONFIGURATION
-# =============================================================================
-st.set_page_config(
-    page_title="Credit Risk Assessment",
-    page_icon="💳",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-st.markdown(CSS, unsafe_allow_html=True)
 init_session_state()
 
 # =============================================================================
@@ -466,7 +445,7 @@ def extract_cibil_from_pdf(uploaded_file):
             page_text = pytesseract.image_to_string(binary)
             full_text += f"\n--- Page {page_num + 1} ---\n{page_text}\n"
         
-        # Extraction helper functions (same as before)
+        # Extraction helper functions
         def extract_credit_score(text):
             patterns = [r'credit\s*score[:\s]*(\d{3})', r'score[:\s]*(\d{3})', r'cibil\s*score[:\s]*(\d{3})']
             for pattern in patterns:
@@ -1138,7 +1117,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                     data=pdf_buffer,
                     file_name=f"stage2_report_{stage1_customer.get('application_id', 'unknown')}.pdf",
                     mime="application/pdf",
-                    use_container_width=True
+                    width="stretch"  # replaced use_container_width
                 )
             except Exception as e:
                 st.error(f"PDF generation failed: {str(e)}")
@@ -1150,7 +1129,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     # Navigation buttons
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🔄 New Assessment", use_container_width=True):
+        if st.button("🔄 New Assessment", width="stretch"):
             st.session_state.stage1_complete = False
             st.session_state.stage1_decision = None
             st.session_state.stage1_data = None
@@ -1158,11 +1137,11 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col2:
-        if st.button("← Back to Stage 1", use_container_width=True):
+        if st.button("← Back to Stage 1", width="stretch"):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col3:
-        if st.button("🏠 Home", use_container_width=True):
+        if st.button("🏠 Home", width="stretch"):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
 
@@ -1223,7 +1202,7 @@ with st.sidebar:
     if st.session_state.stage1_complete:
         st.markdown("---")
         st.markdown("### 🚀 Quick Actions")
-        if st.button("🔄 New Assessment", use_container_width=True):
+        if st.button("🔄 New Assessment", width="stretch"):
             st.session_state.stage1_complete = False
             st.session_state.stage1_decision = None
             st.session_state.stage1_data = None
@@ -1332,7 +1311,7 @@ elif page == "👤 Assessment":
             interest_rate = st.number_input("Interest Rate (%)", 8.0, 20.0, 10.5, 0.5)
             amt_annuity = st.number_input("Requested EMI (Rs.)", 0, 200000, 8500, 500)
         st.markdown("<br>", unsafe_allow_html=True)
-        submitted = st.form_submit_button("🔍 Assess Credit Risk", use_container_width=True)
+        submitted = st.form_submit_button("🔍 Assess Credit Risk", width="stretch")
     
     if submitted:
         timestamp = datetime.now()
@@ -1408,17 +1387,17 @@ elif page == "👤 Assessment":
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("📝 Manual Entry", use_container_width=True, type="primary"):
+                    if st.button("📝 Manual Entry", width="stretch", type="primary"):
                         st.session_state.stage2_selected_tab = "Manual Entry"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
                 with col2:
-                    if st.button("📄 PDF Upload", use_container_width=True, type="primary"):
+                    if st.button("📄 PDF Upload", width="stretch", type="primary"):
                         st.session_state.stage2_selected_tab = "PDF Upload"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
                 with col3:
-                    if st.button("📊 Batch Analysis", use_container_width=True, type="primary"):
+                    if st.button("📊 Batch Analysis", width="stretch", type="primary"):
                         st.session_state.stage2_selected_tab = "Batch Analysis"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
@@ -1478,13 +1457,13 @@ elif page == "👤 Assessment":
                             decision_data=decision_data, customer_data=customer_data,
                             affordability_data=decision_data.get('affordability_data', {}), reasons=reasons)
                         st.download_button("📥 Decision Report (PDF)", data=pdf_buffer,
-                                           file_name=f"credit_decision_{app_id}.pdf", mime="application/pdf", use_container_width=True)
+                                           file_name=f"credit_decision_{app_id}.pdf", mime="application/pdf", width="stretch")
                     except Exception as e:
                         st.error(f"Error generating PDF: {str(e)}")
                 else:
                     st.warning("PDF generation not available.")
             with col2:
-                if st.button("🔄 Re-Evaluate", use_container_width=True):
+                if st.button("🔄 Re-Evaluate", width="stretch"):
                     st.rerun()
 
         with tab3:
@@ -1560,7 +1539,7 @@ elif page == "👤 Assessment":
                                            data=audit_pdf_buffer,
                                            file_name=f"audit_trail_{app_id}.pdf",
                                            mime="application/pdf",
-                                           use_container_width=True)
+                                           width="stretch")
                     except Exception as e:
                         st.error(f"Error generating audit PDF: {str(e)}")
                 else:
@@ -1571,7 +1550,7 @@ elif page == "👤 Assessment":
                                    data=audit_json,
                                    file_name=f"audit_{app_id}.json",
                                    mime="application/json",
-                                   use_container_width=True)
+                                   width="stretch")
 
             st.markdown('<p class="section-header">PD Calculation Summary</p>', unsafe_allow_html=True)
             pd_table = pd.DataFrame([
@@ -1594,7 +1573,7 @@ elif page == "🔬 Stage 2 Analysis":
     if not st.session_state.get('stage1_complete', False):
         st.error("❌ You must complete Stage 1 Assessment first!")
         st.info("Please go to the 👤 Assessment page and submit an application.")
-        if st.button("← Go to Assessment", use_container_width=True):
+        if st.button("← Go to Assessment", width="stretch"):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
         st.stop()
@@ -1603,7 +1582,7 @@ elif page == "🔬 Stage 2 Analysis":
         st.error("❌ Stage 2 is only available for APPROVED or REVIEW applications!")
         st.warning(f"Your Stage 1 decision: {st.session_state.get('stage1_decision', 'Unknown')}")
         st.info("Only APPROVE and REVIEW decisions can proceed to Stage 2 CIBIL deep dive.")
-        if st.button("← Go Back", use_container_width=True):
+        if st.button("← Go Back", width="stretch"):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
         st.stop()
@@ -1611,7 +1590,7 @@ elif page == "🔬 Stage 2 Analysis":
     if not (STAGE2_AVAILABLE and is_stage2_available()):
         st.error("❌ Stage 2 model not available!")
         st.info("Please ensure `stage2_cibil_model.pkl` is in the project directory.")
-        if st.button("← Go Back", use_container_width=True):
+        if st.button("← Go Back", width="stretch"):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
         st.stop()
@@ -1751,7 +1730,7 @@ elif page == "🔬 Stage 2 Analysis":
                 gl_flag = st.selectbox("Gold Loan", ["Yes", "No"]) == "No"
             
             st.markdown("<br>", unsafe_allow_html=True)
-            submitted = st.form_submit_button("🔬 Run Stage 2 Analysis", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("🔬 Run Stage 2 Analysis", width="stretch", type="primary")
         
         if submitted:
             with st.spinner("🔬 Running Stage 2 CIBIL Deep Analysis..."):
@@ -1829,7 +1808,7 @@ elif page == "🔬 Stage 2 Analysis":
             )
             if uploaded_pdf is not None:
                 st.success(f"✅ File uploaded: {uploaded_pdf.name} ({uploaded_pdf.size / 1024:.1f} KB)")
-                if st.button("🔬 Extract & Analyze", type="primary", use_container_width=True):
+                if st.button("🔬 Extract & Analyze", type="primary", width="stretch"):
                     with st.spinner("🔄 Extracting data from PDF..."):
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                         if extraction_result.get('success', False):
@@ -1926,7 +1905,7 @@ elif page == "📊 Batch Process":
                 st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
                 st.info("Please ensure your CSV includes at least these columns: age, employment_type, avg_salary_6m, bureau_score, loan_amount")
             else:
-                if st.button("🚀 Process Batch Predictions", type="primary", use_container_width=True):
+                if st.button("🚀 Process Batch Predictions", type="primary", width="stretch"):
                     with st.spinner(f"🔍 Processing {len(df)} records..."):
                         progress_bar = st.progress(0)
                         results_df = process_batch_predictions(df)
@@ -1976,12 +1955,12 @@ elif page == "📊 Batch Process":
                                 csv = results_df.to_csv(index=False)
                                 st.download_button("📥 Download as CSV", data=csv,
                                                    file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                   mime="text/csv", use_container_width=True)
+                                                   mime="text/csv", width="stretch")
                             with col2:
                                 json_data = results_df.to_json(orient='records', indent=2)
                                 st.download_button("📥 Download as JSON", data=json_data,
                                                    file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                                   mime="application/json", use_container_width=True)
+                                                   mime="application/json", width="stretch")
                             st.markdown("---")
                             st.markdown("#### Filtered Downloads")
                             col1, col2, col3 = st.columns(3)
@@ -1991,21 +1970,21 @@ elif page == "📊 Batch Process":
                                     st.download_button(f"✅ Approved Only ({len(approved_df)})",
                                                        data=approved_df.to_csv(index=False),
                                                        file_name=f"approved_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                       mime="text/csv", use_container_width=True)
+                                                       mime="text/csv", width="stretch")
                             with col2:
                                 rejected_df = results_df[results_df['decision'] == 'REJECT']
                                 if len(rejected_df) > 0:
                                     st.download_button(f"❌ Rejected Only ({len(rejected_df)})",
                                                        data=rejected_df.to_csv(index=False),
                                                        file_name=f"rejected_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                       mime="text/csv", use_container_width=True)
+                                                       mime="text/csv", width="stretch")
                             with col3:
                                 review_df = results_df[results_df['decision'] == 'REVIEW']
                                 if len(review_df) > 0:
                                     st.download_button(f"⚠️ Review Only ({len(review_df)})",
                                                        data=review_df.to_csv(index=False),
                                                        file_name=f"review_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                       mime="text/csv", use_container_width=True)
+                                                       mime="text/csv", width="stretch")
         except Exception as e:
             st.error(f"❌ Error processing file: {str(e)}")
             st.info("Please ensure the CSV file is properly formatted and contains the required columns.")
@@ -2040,7 +2019,7 @@ elif page == "📊 Batch Process":
         st.dataframe(template_df, use_container_width=True)
         csv_template = template_df.to_csv(index=False)
         st.download_button("📥 Download CSV Template", data=csv_template,
-                           file_name="credit_assessment_template.csv", mime="text/csv", use_container_width=True)
+                           file_name="credit_assessment_template.csv", mime="text/csv", width="stretch")
 
 # =============================================================================
 # MODEL INFO PAGE
@@ -2112,4 +2091,3 @@ elif page == "ℹ️ About":
                 </div>
             </div>
         """, unsafe_allow_html=True)
-
