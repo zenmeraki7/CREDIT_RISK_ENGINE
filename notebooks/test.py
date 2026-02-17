@@ -40,10 +40,26 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 # STAGE 2 ENGINE – ROBUST FALLBACK
 # =============================================================================
+import streamlit as st
+
+# MUST BE FIRST STREAMLIT COMMAND
+st.set_page_config(
+    page_title="Credit Risk Assessment",
+    page_icon="💳",
+    layout="wide"
+)
+
+# then all other imports
+import pandas as pd
+import numpy as np
+from stage2_engine import load_model
+
+
 try:
     import stage2_engine
     from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
     STAGE2_AVAILABLE = True
+    
 except ImportError:
     stage2_engine = None
     STAGE2_AVAILABLE = False
