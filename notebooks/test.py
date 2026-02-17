@@ -1,5 +1,5 @@
 # test.py – Credit Risk Assessment Dashboard
-# Version 8.3 – fully fixed for deployment (with use_container_width restored)
+# Version 8.4 – fully fixed for deployment (unique keys + use_container_width)
 
 import sys
 from pathlib import Path
@@ -1125,10 +1125,11 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     
     st.markdown("---")
     
-    # Navigation buttons
+    # Navigation buttons with unique keys
+    app_id = stage1_customer.get('application_id', 'unknown')
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🔄 New Assessment", use_container_width=True):
+        if st.button("🔄 New Assessment", key=f"new_assessment_{app_id}", use_container_width=True):
             st.session_state.stage1_complete = False
             st.session_state.stage1_decision = None
             st.session_state.stage1_data = None
@@ -1136,11 +1137,11 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col2:
-        if st.button("← Back to Stage 1", use_container_width=True):
+        if st.button("← Back to Stage 1", key=f"back_stage1_{app_id}", use_container_width=True):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col3:
-        if st.button("🏠 Home", use_container_width=True):
+        if st.button("🏠 Home", key=f"home_{app_id}", use_container_width=True):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
 
@@ -1386,17 +1387,17 @@ elif page == "👤 Assessment":
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("📝 Manual Entry", use_container_width=True, type="primary"):
+                    if st.button("📝 Manual Entry", key=f"manual_{app_id}", use_container_width=True, type="primary"):
                         st.session_state.stage2_selected_tab = "Manual Entry"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
                 with col2:
-                    if st.button("📄 PDF Upload", use_container_width=True, type="primary"):
+                    if st.button("📄 PDF Upload", key=f"pdf_{app_id}", use_container_width=True, type="primary"):
                         st.session_state.stage2_selected_tab = "PDF Upload"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
                 with col3:
-                    if st.button("📊 Batch Analysis", use_container_width=True, type="primary"):
+                    if st.button("📊 Batch Analysis", key=f"batch_{app_id}", use_container_width=True, type="primary"):
                         st.session_state.stage2_selected_tab = "Batch Analysis"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
@@ -1462,7 +1463,7 @@ elif page == "👤 Assessment":
                 else:
                     st.warning("PDF generation not available.")
             with col2:
-                if st.button("🔄 Re-Evaluate", use_container_width=True):
+                if st.button("🔄 Re-Evaluate", key=f"re_evaluate_{app_id}", use_container_width=True):
                     st.rerun()
 
         with tab3:
