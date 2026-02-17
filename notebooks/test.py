@@ -26,11 +26,13 @@ import json
 import sys
 import os
 from pathlib import Path
+import css_styles
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # =============================================================================
 # IMPORT CSS – ONLY EXTERNAL IMPORT
 # =============================================================================
-from css_style import CSS
+from css_styles import CSS
 
 warnings.filterwarnings('ignore')
 
