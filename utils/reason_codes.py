@@ -16,6 +16,7 @@ APPROVAL_REASONS = {
 
 REJECTION_REASONS = {
     'low_bureau': 'Credit score below minimum ({score} < 550)',
+    
     'high_foir': 'EMI burden too high (FOIR: {foir}% > 50%)',
     'severe_dpd': 'Severe payment delays ({dpd} instances of 90+ DPD)',
     'low_income': 'Income below minimum threshold (₹{income:,} < ₹15,000)',
