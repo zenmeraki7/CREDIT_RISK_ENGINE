@@ -231,6 +231,7 @@ def render_reason_codes(reasons):
 
 def render_decision_summary_page(customer_data, decision, risk_score, 
                                  affordability_data, policy_checks, reasons):
+                                 
     """
     Main function to render complete decision summary page
     Replicates Image 1 layout
