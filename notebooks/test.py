@@ -54,6 +54,8 @@ import pandas as pd
 import numpy as np
 from stage2_engine import load_model
 
+model = load_model()
+
 
 try:
     import stage2_engine
