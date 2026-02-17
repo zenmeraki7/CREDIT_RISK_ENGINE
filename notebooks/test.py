@@ -951,6 +951,7 @@ def create_modern_bar_chart(class_probs):
                       xaxis={'tickfont': {'size': 14, 'color': '#2d3748'}})
     return fig
 
+
 # =============================================================================
 # STAGE 2 RESULTS DISPLAY FUNCTION (ENHANCED WITH COMPREHENSIVE PDF DATA)
 # =============================================================================
@@ -1081,6 +1082,40 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         # Extract Stage 1 reasons from customer data
         stage1_reasons = stage1_customer.get('reason_codes', [])
         
+        # --- Recompute PD factors from Stage 1 data ---
+        bureau_score = stage1_customer.get('bureau_score', 0)
+        dpd_90 = stage1_customer.get('dpd_90_count_6m', 0)
+        dpd_30 = stage1_customer.get('dpd_30_count_6m', 0)
+        employment_type = stage1_customer.get('employment_type', 'Salaried')
+        employment_tenure = stage1_customer.get('employment_tenure_months', 24)
+        business_vintage = stage1_customer.get('business_vintage_years', 0)
+        recent_inquiries = stage1_customer.get('recent_inquiries_3m', 2)
+        ml_decision = stage1_data.get('decision', 'APPROVE')
+        ml_confidence = stage1_data.get('confidence', 75)
+        foir = stage1_data.get('affordability_data', {}).get('foir_percentage', 0)
+        
+        base_pd = bureau_score_to_pd(bureau_score)
+        foir_adj = foir_to_pd_adjustment(foir)
+        deliq_multiplier = delinquency_to_pd_multiplier(dpd_90, dpd_30)
+        employment_adj = employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage)
+        inquiry_adj = inquiry_pattern_to_pd_adjustment(recent_inquiries)
+        ml_adj = ml_confidence_to_pd_adjustment(ml_confidence, ml_decision)
+        final_pd = stage1_data.get('pd_percentage', 0)
+        
+        pd_calculation_factors = {
+            'bureau_score': bureau_score,
+            'base_pd': round(base_pd, 2),
+            'dpd_90': dpd_90,
+            'dpd_30': dpd_30,
+            'delinquency_multiplier': round(deliq_multiplier, 2),
+            'foir': round(foir, 2),
+            'foir_adjustment': round(foir_adj, 2),
+            'employment_adjustment': round(employment_adj, 2),
+            'ml_adjustment': round(ml_adj, 2),
+            'final_pd': final_pd
+        }
+        # ---------------------------------------------
+        
         # Create comprehensive report data that matches expected keys for PDF generator
         report_data = {
             # Stage 1 top-level keys (expected by generate_audit_pdf)
@@ -1094,6 +1129,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             'affordability_data': stage1_data.get('affordability_data', {}),
             'customer_data': stage1_customer,
             'reason_codes': stage1_reasons,
+            'pd_calculation_factors': pd_calculation_factors,   # <-- ADDED
             # Stage 2 data
             'stage2_final_decision': final_decision,
             'stage2_tier': stage2_tier,
