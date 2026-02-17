@@ -449,6 +449,13 @@ import os
 import numpy as np
 import streamlit as st
 
+import joblib
+
+def load_model():
+    model = joblib.load("notebooks/stage2_cibil_model.pkl")
+    return model
+
+
 # =============================================================================
 # LOAD STAGE 2 MODEL (CIBIL DEEP DIVE)
 # =============================================================================
