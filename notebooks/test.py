@@ -2168,7 +2168,7 @@ import css_styles
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # =============================================================================
-# 2. PAGE CONFIG (MUST BE FIRST Streamlit COMMAND)
+# 2. PAGE CONFIG – MUST BE FIRST STREAMLIT COMMAND
 # =============================================================================
 st.set_page_config(
     page_title="Credit Risk Assessment",
@@ -2176,19 +2176,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 # =============================================================================
 # 3. EVERYTHING ELSE (CSS, functions, etc.)
 # =============================================================================
-# from css_styles import CSS
-# st.markdown(CSS, unsafe_allow_html=True)  # This is fine NOW because it's after set_page_config
-
-# # ... rest of your code ...
-
-# =============================================================================
-# IMPORT CSS – ONLY EXTERNAL IMPORT
-# =============================================================================
 from css_styles import CSS
+st.markdown(CSS, unsafe_allow_html=True)
 
 warnings.filterwarnings('ignore')
 
