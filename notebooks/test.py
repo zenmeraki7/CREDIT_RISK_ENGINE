@@ -2137,7 +2137,6 @@
 
 
    
-
 # CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
@@ -2176,6 +2175,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # =============================================================================
 # 3. EVERYTHING ELSE (CSS, functions, etc.)
 # =============================================================================
@@ -2273,16 +2273,7 @@ def init_session_state():
     if 'stage2_selected_tab' not in st.session_state:
         st.session_state.stage2_selected_tab = "Manual Entry"   # default tab
 
-# =============================================================================
-# PAGE CONFIGURATION
-# =============================================================================
-st.set_page_config(
-    page_title="Credit Risk Assessment",
-    page_icon="💳",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-st.markdown(CSS, unsafe_allow_html=True)
+# Initialize session state
 init_session_state()
 
 # =============================================================================
@@ -3125,9 +3116,6 @@ def create_modern_bar_chart(class_probs):
 # =============================================================================
 # STAGE 2 RESULTS DISPLAY FUNCTION (ENHANCED WITH COMPREHENSIVE PDF DATA)
 # =============================================================================
-# =============================================================================
-# STAGE 2 RESULTS DISPLAY FUNCTION (ENHANCED WITH COMPREHENSIVE PDF DATA)
-# =============================================================================
 def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data):
     """Display comprehensive Stage 2 results with decision report and download options"""
     
@@ -3256,7 +3244,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         stage1_reasons = stage1_customer.get('reason_codes', [])
         
         # =============================================================================
-        # NEW: Compute PD calculation factors from Stage 1 data (for PDF audit trail)
+        # Compute PD calculation factors from Stage 1 data (for PDF audit trail)
         # =============================================================================
         bureau_score = stage1_customer.get('bureau_score', 0)
         dpd_90 = stage1_customer.get('dpd_90_count_6m', 0)
@@ -3345,6 +3333,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
+
 # =============================================================================
 # SIDEBAR
 # =============================================================================
@@ -3708,7 +3697,7 @@ elif page == "👤 Assessment":
             policy_df = pd.DataFrame([{'Check': k, 'Result': v} for k, v in decision_data.get('policy_checks', {}).items()])
             st.dataframe(policy_df, use_container_width=True, hide_index=True)
             st.markdown('<p class="section-header">PD Calculation Breakdown</p>', unsafe_allow_html=True)
-            pd_factors = {
+            pd_factors_display = {
                 'Bureau Score': f"{bureau_score} → Base PD: {bureau_score_to_pd(bureau_score):.1f}%",
                 'Delinquency': f"DPD 90+: {dpd_90_6m}, DPD 30+: {dpd_30_6m} → Multiplier: {delinquency_to_pd_multiplier(dpd_90_6m, dpd_30_6m):.1f}x",
                 'FOIR Impact': f"{foir:.1f}% → Adjustment: {foir_to_pd_adjustment(foir):.1f}%",
@@ -3716,7 +3705,7 @@ elif page == "👤 Assessment":
                 'ML Confidence': f"{decision_data.get('confidence', 0):.1f}% → Adjustment: {ml_confidence_to_pd_adjustment(decision_data.get('confidence', 0), decision_data.get('decision', 'ERROR')):.1f}%",
                 'Final PD': f"{decision_data.get('pd_percentage', 0)}%"
             }
-            for factor, value in pd_factors.items():
+            for factor, value in pd_factors_display.items():
                 st.markdown(f"**{factor}:** {value}")
 
         with tab4:
