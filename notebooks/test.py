@@ -2134,9 +2134,6 @@
 
 
 
-
-
-   
 # CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
@@ -3317,8 +3314,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     
     # Navigation buttons
     col1, col2, col3 = st.columns(3)
+    app_id_key = stage1_customer.get('application_id', 'unknown')  # use for unique keys
+
     with col1:
-        if st.button("🔄 New Assessment", use_container_width=True):
+        if st.button("🔄 New Assessment", use_container_width=True, key=f"new_assessment_{app_id_key}"):
             st.session_state.stage1_complete = False
             st.session_state.stage1_decision = None
             st.session_state.stage1_data = None
@@ -3326,11 +3325,11 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col2:
-        if st.button("← Back to Stage 1", use_container_width=True):
+        if st.button("← Back to Stage 1", use_container_width=True, key=f"back_stage1_{app_id_key}"):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col3:
-        if st.button("🏠 Home", use_container_width=True):
+        if st.button("🏠 Home", use_container_width=True, key=f"home_{app_id_key}"):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
 
