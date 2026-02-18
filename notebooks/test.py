@@ -3772,6 +3772,7 @@ elif page == "👤 Assessment":
             ])
             st.dataframe(pd_table, use_container_width=True, hide_index=True)
 
+
 # =============================================================================
 # STAGE 2 ANALYSIS PAGE (FULL WITH RADIO TAB SELECTION)
 # =============================================================================
