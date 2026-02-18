@@ -2136,6 +2136,8 @@
 
 
 
+   
+
 # CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
@@ -3113,6 +3115,9 @@ def create_modern_bar_chart(class_probs):
 # =============================================================================
 # STAGE 2 RESULTS DISPLAY FUNCTION (ENHANCED WITH COMPREHENSIVE PDF DATA)
 # =============================================================================
+# =============================================================================
+# STAGE 2 RESULTS DISPLAY FUNCTION (ENHANCED WITH COMPREHENSIVE PDF DATA)
+# =============================================================================
 def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data):
     """Display comprehensive Stage 2 results with decision report and download options"""
     
@@ -3240,6 +3245,33 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         # Extract Stage 1 reasons from customer data
         stage1_reasons = stage1_customer.get('reason_codes', [])
         
+        # =============================================================================
+        # NEW: Compute PD calculation factors from Stage 1 data (for PDF audit trail)
+        # =============================================================================
+        bureau_score = stage1_customer.get('bureau_score', 0)
+        dpd_90 = stage1_customer.get('dpd_90_count_6m', 0)
+        dpd_30 = stage1_customer.get('dpd_30_count_6m', 0)
+        foir = stage1_data.get('affordability_data', {}).get('foir_percentage', 0)
+        employment_type = stage1_customer.get('employment_type', 'Salaried')
+        employment_tenure = stage1_customer.get('employment_tenure_months', 0)
+        business_vintage = stage1_customer.get('business_vintage_years', 0)
+        ml_decision = stage1_data.get('decision', 'ERROR')
+        confidence = stage1_data.get('confidence', 0)
+        
+        pd_factors = {
+            'bureau_score': bureau_score,
+            'base_pd': bureau_score_to_pd(bureau_score),
+            'dpd_90': dpd_90,
+            'dpd_30': dpd_30,
+            'delinquency_multiplier': delinquency_to_pd_multiplier(dpd_90, dpd_30),
+            'foir': foir,
+            'foir_adjustment': foir_to_pd_adjustment(foir),
+            'employment_adjustment': employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage),
+            'ml_adjustment': ml_confidence_to_pd_adjustment(confidence, ml_decision),
+            'final_pd': stage1_data.get('pd_percentage', 0)
+        }
+        # =============================================================================
+        
         # Create comprehensive report data that matches expected keys for PDF generator
         report_data = {
             # Stage 1 top-level keys (expected by generate_audit_pdf)
@@ -3253,6 +3285,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             'affordability_data': stage1_data.get('affordability_data', {}),
             'customer_data': stage1_customer,
             'reason_codes': stage1_reasons,
+            'pd_calculation_factors': pd_factors,          # <-- ADDED
             # Stage 2 data
             'stage2_final_decision': final_decision,
             'stage2_tier': stage2_tier,
@@ -3302,7 +3335,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
-
 # =============================================================================
 # SIDEBAR
 # =============================================================================
