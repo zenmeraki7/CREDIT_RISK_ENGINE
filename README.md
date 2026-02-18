@@ -1,5 +1,3 @@
-Here's the complete `README.md` content you can copy and paste directly into your repository:
-
 ```markdown
 # Credit Risk Assessment Dashboard
 
@@ -165,10 +163,10 @@ numpy==1.26.2
 plotly==5.18.0
 scikit-learn==1.3.2
 reportlab==3.6.12
-pytesseract          # OCR
-pdf2image            # PDF to image conversion
-opencv-python        # Image processing
-pillow               # PIL
+pytesseract
+pdf2image
+opencv-python
+pillow
 ```
 
 ### System Dependencies (packages.txt for Streamlit Cloud)
@@ -212,4 +210,4 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 *This project is for educational and demonstration purposes.*
 ```
 
-Just paste this into your `README.md` file and update placeholders like the screenshot path, repository URL, and author email.
+Just paste this into the GitHub editor and commit. Remember to replace the placeholder URL and author email if needed.
