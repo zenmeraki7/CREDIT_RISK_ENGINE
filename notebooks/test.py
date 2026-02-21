@@ -2309,14 +2309,14 @@ def init_session_state():
 # =============================================================================
 # PAGE CONFIGURATION
 # =============================================================================
-# st.set_page_config(
-#     page_title="Credit Risk Assessment",
-#     page_icon="💳",
-#     layout="wide",
-#     initial_sidebar_state="expanded"
-# )
-# st.markdown(CSS, unsafe_allow_html=True)
-# init_session_state()
+st.set_page_config(
+    page_title="Credit Risk Assessment",
+    page_icon="💳",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+st.markdown(CSS, unsafe_allow_html=True)
+init_session_state()   # <-- ADD THIS LINE
 
 # =============================================================================
 # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
