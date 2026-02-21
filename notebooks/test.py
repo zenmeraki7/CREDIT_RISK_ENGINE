@@ -2208,7 +2208,7 @@ import css_styles
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'C:\Users\user\OneDrive\Desktop\navya\ocr\tesseract.exe'
+#pytesseract.pytesseract.tesseract_cmd = r'C:\Users\user\OneDrive\Desktop\navya\ocr\tesseract.exe'
 
 # =============================================================================
 # IMPORT CSS – ONLY EXTERNAL IMPORT
@@ -2610,26 +2610,18 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir):
 # CIBIL PDF EXTRACTION ENGINE (OCR + PATTERN MATCHING)
 # =============================================================================
 def extract_cibil_from_pdf(uploaded_file):
-    """Extract CIBIL bureau data from PDF using OCR and robust pattern matching."""
+    """Extract CIBIL data using OCR – relies on system PATH."""
     if not OCR_AVAILABLE:
-        return {
-            'success': False,
-            'error': 'OCR libraries not installed',
-            'message': 'Please install: pip install pytesseract pdf2image opencv-python pillow'
-        }
+        return {'success': False, 'error': 'OCR libraries not installed'}
+
     try:
         pdf_bytes = uploaded_file.read()
-        images = convert_from_bytes(
-            pdf_bytes, dpi=300,
-            poppler_path=r'C:\Users\user\Videos\Release-25.12.0-0\poppler-25.12.0\Library\bin'
-        )
+        images = convert_from_bytes(pdf_bytes, dpi=300)          # no poppler_path
         full_text = ""
-        for page_num, image in enumerate(images):
-            img_array = np.array(image)
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        for image in images:
+            gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
             _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            page_text = pytesseract.image_to_string(binary)
-            full_text += f"\n--- Page {page_num + 1} ---\n{page_text}\n"
+            full_text += pytesseract.image_to_string(binary) + "\n"
 
         # ----- 1. Credit Score -----
         # CIBIL PDFs often have "612 SUBPRIME" BEFORE the label "CIBIL Score"
