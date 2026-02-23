@@ -2224,11 +2224,13 @@ try:
     import stage2_engine
     from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
     STAGE2_AVAILABLE = True
+        
 except ImportError:
     stage2_engine = None
     STAGE2_AVAILABLE = False
     def make_two_stage_decision(*args, **kwargs):
         raise NotImplementedError("Stage 2 engine not available")
+            
     def is_stage2_available():
         return False
     def get_stage2_status():
