@@ -2204,11 +2204,9 @@ import json
 import sys
 import os
 from pathlib import Path
+
 import css_styles
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import pytesseract
-#pytesseract.pytesseract.tesseract_cmd = r'C:\Users\user\OneDrive\Desktop\navya\ocr\tesseract.exe'
 
 # =============================================================================
 # IMPORT CSS – ONLY EXTERNAL IMPORT
