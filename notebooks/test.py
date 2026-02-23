@@ -2317,9 +2317,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-st.markdown(CSS, unsafe_allow_html=True)
 
-init_session_state() 
+st.markdown(CSS, unsafe_allow_html=True)
+init_session_state()  
 
 # =============================================================================
 # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
