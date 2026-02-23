@@ -4664,7 +4664,6 @@
 
 
 
-
 # CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
@@ -5928,7 +5927,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🔄 New Assessment", use_container_width=True):
+        if st.button("🔄 New Assessment", key="new_assessment_stage2", use_container_width=True):
             st.session_state.stage1_complete = False
             st.session_state.stage1_decision = None
             st.session_state.stage1_data = None
@@ -5936,11 +5935,11 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col2:
-        if st.button("← Back to Stage 1", use_container_width=True):
+        if st.button("← Back to Stage 1", key="back_to_stage1", use_container_width=True):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
     with col3:
-        if st.button("🏠 Home", use_container_width=True):
+        if st.button("🏠 Home", key="home_stage2", use_container_width=True):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
 
@@ -5996,7 +5995,7 @@ with st.sidebar:
     if st.session_state.stage1_complete:
         st.markdown("---")
         st.markdown("### 🚀 Quick Actions")
-        if st.button("🔄 New Assessment", use_container_width=True):
+        if st.button("🔄 New Assessment", key="new_assessment_sidebar", use_container_width=True):
             st.session_state.stage1_complete = False
             st.session_state.stage1_decision = None
             st.session_state.stage1_data = None
@@ -6371,17 +6370,17 @@ elif page == "👤 Assessment":
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("📝 Manual Entry", use_container_width=True, type="primary"):
+                    if st.button("📝 Manual Entry", key="stage2_manual_btn", use_container_width=True, type="primary"):
                         st.session_state.stage2_selected_tab = "Manual Entry"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
                 with col2:
-                    if st.button("📄 PDF Upload", use_container_width=True, type="primary"):
+                    if st.button("📄 PDF Upload", key="stage2_pdf_btn", use_container_width=True, type="primary"):
                         st.session_state.stage2_selected_tab = "PDF Upload"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
                 with col3:
-                    if st.button("📊 Batch Analysis", use_container_width=True, type="primary"):
+                    if st.button("📊 Batch Analysis", key="stage2_batch_btn", use_container_width=True, type="primary"):
                         st.session_state.stage2_selected_tab = "Batch Analysis"
                         st.session_state.page_navigation = "🔬 Stage 2 Analysis"
                         st.rerun()
@@ -6448,7 +6447,7 @@ elif page == "👤 Assessment":
                 else:
                     st.warning("PDF generation not available.")
             with col2:
-                if st.button("🔄 Re-Evaluate", use_container_width=True):
+                if st.button("🔄 Re-Evaluate", key="reevaluate_btn", use_container_width=True):
                     st.rerun()
 
         with tab3:
@@ -6779,7 +6778,7 @@ elif page == "🔬 Stage 2 Analysis":
             )
             if uploaded_pdf is not None:
                 st.success(f"✅ File uploaded: {uploaded_pdf.name} ({uploaded_pdf.size / 1024:.1f} KB)")
-                if st.button("🔬 Extract & Analyze", type="primary", use_container_width=True):
+                if st.button("🔬 Extract & Analyze", key="extract_analyze_stage2", type="primary", use_container_width=True):
                     with st.spinner("🔄 Extracting data from PDF..."):
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                         if extraction_result.get('success', False):
@@ -6953,7 +6952,7 @@ elif page == "📊 Batch Process":
                 st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
                 st.info("Please ensure your CSV includes at least these columns: age, employment_type, avg_salary_6m, bureau_score, loan_amount")
             else:
-                if st.button("🚀 Process Batch Predictions", type="primary", use_container_width=True):
+                if st.button("🚀 Process Batch Predictions", key="process_batch_btn", type="primary", use_container_width=True):
                     with st.spinner(f"🔍 Processing {len(df)} records..."):
                         progress_bar = st.progress(0)
                         results_df = process_batch_predictions(df)
