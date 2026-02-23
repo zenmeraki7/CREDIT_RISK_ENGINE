@@ -3598,8 +3598,16 @@ elif page == "👤 Assessment":
                            f"{ex.get('written_off_count',0)} written-off, "
                            f"{ex.get('settled_count',0)} settled accounts. "
                            f"Score overridden to {ex.get('Credit_Score','?')}.")
-            with st.expander("📋 Full extracted JSON"):
+                           
+            if st.toggle("📋 Show full extracted JSON"):
                 st.json({k: v for k, v in ex.items() if k != 'raw_text'})
+            st.markdown("---")
+            if st.button("🔄 Upload a different PDF", key="reset_pdf"):
+                st.session_state.pdf_just_extracted = False
+                st.session_state.pop('_last_extraction', None)
+                st.rerun()
+                
+
             st.markdown("---")
             if st.button("🔄 Upload a different PDF", key="reset_pdf"):
                 st.session_state.pdf_just_extracted = False
