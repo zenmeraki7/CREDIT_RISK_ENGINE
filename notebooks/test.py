@@ -2178,14 +2178,204 @@
 
 
 
-# CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
+# # CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
+# """
+# Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
+# Enhanced with Modern UI/UX Design
+# Run with: streamlit run test.py (from inside the notebooks folder)
+# Author: Zen Meraki
+# Date: January 2026
+# VERSION: 8.2 - COMPLETELY FIXED PD CALCULATION & AUDIT PDF
+# """
+
+# import streamlit as st
+# import pandas as pd
+# import numpy as np
+# import plotly.graph_objects as go
+# import plotly.express as px
+# import joblib
+# import warnings
+# from datetime import datetime
+# import hashlib
+# import io
+# import base64
+# from typing import Dict, List, Any, Union
+# import json
+# import sys
+# import os
+# from pathlib import Path
+# import pytesseract
+
+# import css_styles
+# sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# # =============================================================================
+# # IMPORT CSS – ONLY EXTERNAL IMPORT
+# # =============================================================================
+# from css_styles import CSS
+
+# warnings.filterwarnings('ignore')
+
+# # =============================================================================
+# # STAGE 2 ENGINE – ROBUST FALLBACK
+# # =============================================================================
+# try:
+#     import stage2_engine
+#     from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
+#     STAGE2_AVAILABLE = True
+        
+# except ImportError:
+#     stage2_engine = None
+#     STAGE2_AVAILABLE = False
+#     def make_two_stage_decision(*args, **kwargs):
+#         raise NotImplementedError("Stage 2 engine not available")
+            
+#     def is_stage2_available():
+#         return False
+#     def get_stage2_status():
+#         return {"error": "Stage 2 engine module not found", "available": False}
+
+# # =============================================================================
+# # OCR IMPORTS FOR CIBIL PDF EXTRACTION
+# # =============================================================================
+# try:
+#     import pytesseract
+#     from pdf2image import convert_from_bytes
+#     import cv2
+#     from PIL import Image
+#     import re
+#     OCR_AVAILABLE = True
+# except ImportError:
+#     OCR_AVAILABLE = False
+
+# # =============================================================================
+# # PDF GENERATION – SAFE FALLBACK
+# # =============================================================================
+# PDF_AVAILABLE = False
+# generate_decision_pdf = None
+# generate_audit_pdf = None
+# try:
+#     from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
+#     PDF_AVAILABLE = True
+# except ImportError as e:
+#     PDF_AVAILABLE = False
+#     pass
+
+# # =============================================================================
+# # JSON SANITIZER
+# # =============================================================================
+# def sanitize_for_json(obj: Any) -> Any:
+#     if obj is None or isinstance(obj, (str, int, float, bool)):
+#         return obj
+#     if isinstance(obj, set):
+#         return list(obj)
+#     if isinstance(obj, datetime):
+#         return obj.isoformat()
+#     if isinstance(obj, np.integer):
+#         return int(obj)
+#     if isinstance(obj, np.floating):
+#         return float(obj)
+#     if isinstance(obj, np.ndarray):
+#         return obj.tolist()
+#     if isinstance(obj, dict):
+#         return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+#     if isinstance(obj, (list, tuple)):
+#         return [sanitize_for_json(item) for item in obj]
+#     try:
+#         json.dumps(obj)
+#         return obj
+#     except (TypeError, ValueError):
+#         return str(obj)
+
+# # =============================================================================
+# # SESSION STATE INITIALIZATION
+# # =============================================================================
+# def init_session_state():
+#     """Initialize all session state variables"""
+#     if 'stage1_complete' not in st.session_state:
+#         st.session_state.stage1_complete = False
+#     if 'stage1_decision' not in st.session_state:
+#         st.session_state.stage1_decision = None
+#     if 'stage1_data' not in st.session_state:
+#         st.session_state.stage1_data = None
+#     if 'current_customer_data' not in st.session_state:
+#         st.session_state.current_customer_data = None
+#     if 'page_navigation' not in st.session_state:
+#         st.session_state.page_navigation = "🏠 Home"
+#     if 'use_two_stage' not in st.session_state:
+#         st.session_state.use_two_stage = False
+#     if 'stage2_selected_tab' not in st.session_state:
+#         st.session_state.stage2_selected_tab = "Manual Entry"
+
+# # =============================================================================
+# # PAGE CONFIGURATION
+# # =============================================================================
+
+# st.set_page_config(
+#     page_title="Credit Risk Assessment",
+#     page_icon="💳",
+#     layout="wide",
+#     initial_sidebar_state="expanded"
+# )
+# st.markdown(CSS, unsafe_allow_html=True)
+# init_session_state() 
+
+
+# # =============================================================================
+# # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
+# # =============================================================================
+# @st.cache_resource
+# def load_model_assets():
+#     try:
+#         possible_paths = [
+#             'credit_risk_assets.pkl',
+#             'notebooks/credit_risk_assets.pkl',
+#             '../notebooks/credit_risk_assets.pkl'
+#         ]
+#         assets = None
+#         for path in possible_paths:
+#             try:
+#                 assets = joblib.load(path)
+#                 break
+#             except FileNotFoundError:
+#                 continue
+#         if assets is None:
+#             raise FileNotFoundError("Could not find credit_risk_assets.pkl")
+#         return {
+#             'model': assets['model'],
+#             'features': assets['features'],
+#             'le_map': assets['le_map'],
+#             'target_le': assets['target_le'],
+#             'loaded': True,
+#             'error': None
+#         }
+#     except FileNotFoundError:
+#         return {'loaded': False, 'error': 'credit_risk_assets.pkl not found. Please run the training script first.'}
+#     except Exception as e:
+#         return {'loaded': False, 'error': f'Error loading model: {str(e)}'}
+
+# ASSETS = load_model_assets()
+# if not ASSETS['loaded']:
+#     st.error(f"❌ {ASSETS['error']}")
+#     st.info("Please ensure 'credit_risk_assets.pkl' is in the same directory as this app.")
+#     st.stop()
+
+# MODEL = ASSETS['model']
+# TOP_FEATURES = ASSETS['features']
+# LE_MAP = ASSETS['le_map']
+# TARGET_LE = ASSETS['target_le']
+
+
+
+
+# CORRECTED test.py - VERSION 8.3
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
 Run with: streamlit run test.py (from inside the notebooks folder)
 Author: Zen Meraki
 Date: January 2026
-VERSION: 8.2 - COMPLETELY FIXED PD CALCULATION & AUDIT PDF
+VERSION: 8.3 - FIXED set_page_config & duplicate button
 """
 
 import streamlit as st
@@ -2204,7 +2394,6 @@ import json
 import sys
 import os
 from pathlib import Path
-import pytesseract
 
 import css_styles
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -2318,7 +2507,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 st.markdown(CSS, unsafe_allow_html=True)
-init_session_state() 
+init_session_state()
 
 
 # =============================================================================
