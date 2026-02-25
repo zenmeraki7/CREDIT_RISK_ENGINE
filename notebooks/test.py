@@ -5002,17 +5002,50 @@ def bureau_score_to_pd(bureau_score):
     else:
         return min(25.0, 15.0 + (550 - bureau_score) / 50 * 10.0)
 
+# def foir_to_pd_adjustment(foir_percentage):
+#     if foir_percentage <= 30:
+#         return -0.5
+#     elif foir_percentage <= 40:
+#         return 0.0
+#     elif foir_percentage <= 50:
+#         return 1.0
+#     elif foir_percentage <= 60:
+#         return 2.5
+#     else:
+#         return 5.0
+
+            
 def foir_to_pd_adjustment(foir_percentage):
+    """
+    Converts FOIR% into PD adjustment.
+    Higher FOIR -> higher risk premium.
+    """
+
+    # Defensive check
+    if foir_percentage is None or foir_percentage < 0:
+        raise ValueError("Invalid FOIR percentage")
+
     if foir_percentage <= 30:
-        return -0.5
+        return -0.75   # Very strong repayment capacity
+
     elif foir_percentage <= 40:
-        return 0.0
+        return 0.00    # Neutral risk band
+
+    elif foir_percentage <= 45:
+        return 0.75    # Mild stress begins
+
     elif foir_percentage <= 50:
-        return 1.0
+        return 1.50    # Borderline – needs pricing premium
+
+    elif foir_percentage <= 55:
+        return 2.25    # Elevated risk
+
     elif foir_percentage <= 60:
-        return 2.5
+        return 3.50    # High risk – should mostly go to REVIEW
+
     else:
-        return 5.0
+        return 6.00    # Extreme leverage – likely DECLINE
+            
 
 def delinquency_to_pd_multiplier(dpd_90_count, dpd_30_count=0):
     if dpd_90_count >= 3:
