@@ -5558,14 +5558,23 @@ def make_hybrid_decision_enhanced(customer_dict):
     if dependents_flag_review and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
 
-    risk_score = calculate_final_risk_score(bureau_score, confidence, foir)
-    pd_percentage = calculate_final_pd(
-        bureau_score=bureau_score, foir=foir, confidence=confidence,
-        dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
-        employment_type=employment_type, employment_tenure=employment_tenure,
-        business_vintage=business_vintage, recent_inquiries=recent_inquiries,
-        ml_decision=ml_decision
-    )
+     risk_score = calculate_final_risk_score(
+    bureau_score=bureau_score,
+    ml_confidence=confidence,
+    foir=foir,
+    dpd_90=dpd_90,
+    dpd_30=customer_dict.get('dpd_30_count_6m', 0),
+    net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
+    active_loans=customer_dict.get('active_loans_count', 0)
+)
+    # risk_score = calculate_final_risk_score(bureau_score, confidence, foir)
+    # pd_percentage = calculate_final_pd(
+    #     bureau_score=bureau_score, foir=foir, confidence=confidence,
+    #     dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
+    #     employment_type=employment_type, employment_tenure=employment_tenure,
+    #     business_vintage=business_vintage, recent_inquiries=recent_inquiries,
+    #     ml_decision=ml_decision
+    # )
     return {
         'decision': ml_decision,
         'reason': "Decision based on comprehensive assessment",
