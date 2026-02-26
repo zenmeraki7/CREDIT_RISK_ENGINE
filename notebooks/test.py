@@ -5600,24 +5600,24 @@ def make_hybrid_decision_enhanced(customer_dict):
     net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
     active_loans=customer_dict.get('active_loans_count', 0)
 )
-    # risk_score = calculate_final_risk_score(bureau_score, confidence, foir)
-    # pd_percentage = calculate_final_pd(
-    #     bureau_score=bureau_score, foir=foir, confidence=confidence,
-    #     dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
-    #     employment_type=employment_type, employment_tenure=employment_tenure,
-    #     business_vintage=business_vintage, recent_inquiries=recent_inquiries,
-    #     ml_decision=ml_decision
-    # )
-    return {
-        'decision': ml_decision,
-        'reason': "Decision based on comprehensive assessment",
-        'confidence': confidence,
-        'class_probs': class_probs,
-        'policy_checks': policy_checks,
-        'risk_score': risk_score,
-        'pd_percentage': round(pd_percentage, 2),
-        'affordability_data': affordability_data
-    }
+    risk_score = calculate_final_risk_score(bureau_score, confidence, foir)
+    pd_percentage = calculate_final_pd(
+        bureau_score=bureau_score, foir=foir, confidence=confidence,
+        dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
+        employment_type=employment_type, employment_tenure=employment_tenure,
+        business_vintage=business_vintage, recent_inquiries=recent_inquiries,
+        ml_decision=ml_decision
+    )
+    # return {
+    #     'decision': ml_decision,
+    #     'reason': "Decision based on comprehensive assessment",
+    #     'confidence': confidence,
+    #     'class_probs': class_probs,
+    #     'policy_checks': policy_checks,
+    #     'risk_score': risk_score,
+    #     'pd_percentage': round(pd_percentage, 2),
+    #     'affordability_data': affordability_data
+    # }
 
 # =============================================================================
 # BATCH PREDICTION ENGINE
