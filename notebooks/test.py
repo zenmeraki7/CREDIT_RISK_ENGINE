@@ -12817,8 +12817,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     foir = affordability_data['foir_percentage']
     if ml_decision == "APPROVE" and foir > 45:
         ml_decision = "REVIEW"
-
-    ## Apply dependents rule
+# Apply dependents rule
 if dependents_flag_review and ml_decision == "APPROVE":
     ml_decision = "REVIEW"
 
@@ -12842,21 +12841,21 @@ pd_percentage = calculate_final_pd(
     dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
     employment_type=employment_type,
     employment_tenure=employment_tenure,
-    business_vintage=business_vintage,          # FIXED: correct assignment
+    business_vintage=business_vintage,
     recent_inquiries=recent_inquiries,
     ml_decision=ml_decision
 )
-return {
-        'decision': ml_decision,
-        'reason': "Decision based on comprehensive assessment",
-        'confidence': confidence,
-        'class_probs': class_probs,
-        'policy_checks': policy_checks,
-        'risk_score': risk_score,
-        'pd_percentage': round(pd_percentage, 2),
-        'affordability_data': affordability_data
-    }
 
+return {
+    'decision': ml_decision,
+    'reason': "Decision based on comprehensive assessment",
+    'confidence': confidence,
+    'class_probs': class_probs,
+    'policy_checks': policy_checks,
+    'risk_score': risk_score,
+    'pd_percentage': round(pd_percentage, 2),
+    'affordability_data': affordability_data
+}
 # =============================================================================
 # BATCH PREDICTION ENGINE
 # =============================================================================
