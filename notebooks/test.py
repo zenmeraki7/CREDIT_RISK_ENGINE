@@ -12361,8 +12361,9 @@ def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_co
 #     return min(max(total_score, 0), 1000)
 
 def calculate_final_risk_score(bureau_score, ml_confidence, foir,
-                                dpd_90, dpd_30, net_surplus, 
-                                bounces, missing_months, active_loans):
+                               dpd_90, dpd_30, net_surplus, 
+                               bounces=0, missing_months=0, active_loans=0):
+    
 
     # === COMPONENT 1: Bureau (0-400 points) ===
     bureau_points = (bureau_score / 900) * 400
@@ -12817,11 +12818,12 @@ def make_hybrid_decision_enhanced(customer_dict):
     if ml_decision == "APPROVE" and foir > 45:
         ml_decision = "REVIEW"
 
-    # Apply dependents rule
-    if dependents_flag_review and ml_decision == "APPROVE":
-        ml_decision = "REVIEW"
+    ## Apply dependents rule
+if dependents_flag_review and ml_decision == "APPROVE":
+    ml_decision = "REVIEW"
 
-    risk_score = calculate_final_risk_score(
+# Calculate risk score (with default values for bounces and missing_months)
+risk_score = calculate_final_risk_score(
     bureau_score=bureau_score,
     ml_confidence=confidence,
     foir=foir,
@@ -12830,14 +12832,20 @@ def make_hybrid_decision_enhanced(customer_dict):
     net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
     active_loans=customer_dict.get('active_loans_count', 0)
 )
-    # risk_score = calculate_final_risk_score(bureau_score, confidence, foir)
-    # pd_percentage = calculate_final_pd(
-    #     bureau_score=bureau_score, foir=foir, confidence=confidence,
-    #     dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
-    #     employment_type=employment_type, employment_tenure=employment_tenure,
-    #     business_vintage=business_vintage, recent_inquiries=recent_inquiries,
-    #     ml_decision=ml_decision
-    # )
+
+# Calculate PD percentage
+pd_percentage = calculate_final_pd(
+    bureau_score=bureau_score,
+    foir=foir,
+    confidence=confidence,
+    dpd_90_count=dpd_90,
+    dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
+    employment_type=employment_type,
+    employment_tenure=employment_tenure,
+    business_vintage=business_vintage,          # FIXED: correct assignment
+    recent_inquiries=recent_inquiries,
+    ml_decision=ml_decision
+)
     return {
         'decision': ml_decision,
         'reason': "Decision based on comprehensive assessment",
