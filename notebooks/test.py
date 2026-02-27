@@ -12821,7 +12821,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     if dependents_flag_review and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
 
-     risk_score = calculate_final_risk_score(
+    risk_score = calculate_final_risk_score(
     bureau_score=bureau_score,
     ml_confidence=confidence,
     foir=foir,
