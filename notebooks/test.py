@@ -11923,21 +11923,51 @@ import cv2
 from PIL import Image
 from pdf2image import convert_from_bytes
 
-
-
+# =============================================================================
+# DYNAMIC PATH RESOLUTION FOR UTILITY MODULES
+# =============================================================================
 import sys
 from pathlib import Path
 
-# Add parent (loan) and grandparent (credit_risk_engine) directories to sys.path
-current_file = Path(__file__).resolve()
-parent_dir = current_file.parent.parent          # /loan
-grandparent_dir = current_file.parent.parent.parent  # /credit_risk_engine
+# Get the absolute path of the current script
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent          # Typically /mount/src/credit_risk_engine
+POSSIBLE_LOCATIONS = [
+    CURRENT_DIR,                           # notebooks/
+    PROJECT_ROOT,                           # credit_risk_engine/
+    PROJECT_ROOT / "loan",                   # credit_risk_engine/loan/
+    PROJECT_ROOT / "utils",                   # credit_risk_engine/utils/
+    PROJECT_ROOT / "notebooks",               # credit_risk_engine/notebooks/
+]
 
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
-if str(grandparent_dir) not in sys.path:
-    sys.path.insert(0, str(grandparent_dir))
+# Add each location to sys.path if it exists and not already present
+for loc in POSSIBLE_LOCATIONS:
+    if loc.exists() and str(loc) not in sys.path:
+        sys.path.insert(0, str(loc))
 
+# Attempt to import the modules
+try:
+    from affordability_engine import calculate_emi, calculate_affordability
+    from reason_codes import generate_reason_codes
+    from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
+    from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
+except ModuleNotFoundError as e:
+    st.error(f"❌ Failed to import required modules: {e}")
+    st.info("""
+    Please ensure the following files are placed in one of these directories:
+    - `notebooks/` (same folder as test.py)
+    - `loan/` (sibling of notebooks)
+    - `utils/` (containing pdf_generator.py and __init__.py)
+    - The project root (`credit_risk_engine/`)
+    
+    Required files:
+    - affordability_engine.py
+    - reason_codes.py
+    - risk_engine.py
+    - utils/__init__.py
+    - utils/pdf_generator.py
+    """)
+    st.stop()
 # =============================================================================
 # IMPORT UTILITY MODULES
 # =============================================================================
