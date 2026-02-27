@@ -11969,14 +11969,45 @@ except ModuleNotFoundError as e:
     """)
     st.stop()
 # =============================================================================
-# IMPORT UTILITY MODULES
+# IMPORT css
 # =============================================================================
-from affordability_engine import calculate_emi, calculate_affordability
-from reason_codes import generate_reason_codes
-from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
-from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
 
-
+# =============================================================================
+# IMPORT CSS – FIXED WITH FALLBACK
+# =============================================================================
+try:
+    from css_styles import CSS
+except ImportError:
+    # Fallback minimal CSS to avoid crashing
+    CSS = """
+    <style>
+        .main-header { font-size: 2rem; font-weight: bold; color: #2d3748; }
+        .section-header { font-size: 1.5rem; font-weight: 600; color: #2d3748; }
+        .info-box { background: #f7fafc; padding: 1rem; border-radius: 0.5rem; }
+        .decision-card { padding: 2rem; border-radius: 1rem; text-align: center; margin-bottom: 1rem; }
+        .decision-card-approved { background: #c6f6d5; border-left: 5px solid #48bb78; }
+        .decision-card-rejected { background: #fed7d7; border-left: 5px solid #f56565; }
+        .decision-card-review { background: #feebc8; border-left: 5px solid #ed8936; }
+        .decision-title { font-size: 2.5rem; font-weight: bold; }
+        .decision-subtitle { font-size: 1rem; opacity: 0.8; }
+        .stat-card { background: white; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+        .stat-number { font-size: 1.8rem; font-weight: bold; color: #2d3748; }
+        .stat-label { font-size: 0.875rem; color: #718096; }
+        .info-card { background: white; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .info-card-title { font-weight: 600; margin-bottom: 0.5rem; color: #2d3748; }
+        .info-card-content { font-size: 0.875rem; }
+        .data-row { display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid #e2e8f0; }
+        .data-label { color: #4a5568; }
+        .data-value { font-weight: 500; }
+        .status-badge { padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem; }
+        .badge-pass { background: #c6f6d5; color: #22543d; }
+        .badge-fail { background: #fed7d7; color: #742a2a; }
+        .badge-warning { background: #feebc8; color: #744210; }
+        .reason-item { padding: 0.25rem 0; }
+        .reason-icon { color: #587042; font-weight: bold; margin-right: 0.5rem; }
+    </style>
+    """
+        
 # =============================================================================
 # PAGE CONFIGURATION – MUST BE FIRST STREAMLIT COMMAND
 # =============================================================================
