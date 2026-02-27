@@ -287,6 +287,9 @@
 
 
 
+
+
+
 """
 Decision Summary Page - Replicates Image 1 layout
 """
@@ -564,3 +567,116 @@ def render_decision_summary_page(customer_data, decision, risk_score,
     with col2:
         if st.button("🔄 Re-Evaluate Application", use_container_width=True):
             st.rerun()
+
+
+# =============================================================================
+# NEW FUNCTIONS REQUIRED BY test.py (new version)
+# =============================================================================
+
+def render_info_card(title, icon, data_dict, status_dict=None):
+    """
+    Render a styled info card with key-value pairs and optional pass/fail status.
+    status_dict values: 'pass', 'fail', 'warning', or ''
+    """
+    rows_html = ""
+    for key, value in data_dict.items():
+        status = status_dict.get(key, '') if status_dict else ''
+        if status == 'pass':
+            badge = "<span style='color:#28a745;font-weight:bold;'>✓</span>"
+        elif status == 'fail':
+            badge = "<span style='color:#dc3545;font-weight:bold;'>✗</span>"
+        elif status == 'warning':
+            badge = "<span style='color:#ffc107;font-weight:bold;'>⚠</span>"
+        else:
+            badge = ""
+        # For rows where value is empty, just show the key with badge
+        display_val = f"{value}" if value != "" else ""
+        rows_html += f"""
+            <div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;'>
+                <span style='color:#555;font-size:0.85rem;'>{key}</span>
+                <span style='font-weight:500;font-size:0.85rem;'>{display_val} {badge}</span>
+            </div>"""
+
+    st.markdown(f"""
+        <div style='background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:1rem;margin-bottom:1rem;'>
+            <div style='font-weight:700;font-size:1rem;margin-bottom:0.75rem;color:#333;'>
+                {icon} {title}
+            </div>
+            {rows_html}
+        </div>
+    """, unsafe_allow_html=True)
+
+
+def create_modern_gauge(value, title, max_value=100):
+    """
+    Create a modern Plotly gauge chart for metrics like confidence or risk score.
+    Returns a Plotly Figure.
+    """
+    import plotly.graph_objects as go
+
+    # Color zones based on value
+    if value >= 75:
+        bar_color = "#28a745"
+    elif value >= 50:
+        bar_color = "#ffc107"
+    else:
+        bar_color = "#dc3545"
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        title={'text': title, 'font': {'size': 16}},
+        number={'suffix': "%", 'font': {'size': 24}},
+        gauge={
+            'axis': {'range': [0, max_value], 'tickwidth': 1},
+            'bar': {'color': bar_color},
+            'steps': [
+                {'range': [0, max_value * 0.5], 'color': '#fdecea'},
+                {'range': [max_value * 0.5, max_value * 0.75], 'color': '#fff3cd'},
+                {'range': [max_value * 0.75, max_value], 'color': '#d4edda'},
+            ],
+            'threshold': {
+                'line': {'color': "black", 'width': 2},
+                'thickness': 0.75,
+                'value': value
+            }
+        }
+    ))
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+    return fig
+
+
+def create_modern_bar_chart(class_probs):
+    """
+    Create a modern Plotly bar chart for class probabilities.
+    class_probs: dict like {'APPROVE': 70.5, 'REVIEW': 20.0, 'REJECT': 9.5}
+    Returns a Plotly Figure.
+    """
+    import plotly.graph_objects as go
+
+    color_map = {
+        'APPROVE': '#28a745',
+        'REVIEW': '#ffc107',
+        'REJECT': '#dc3545'
+    }
+
+    labels = list(class_probs.keys())
+    values = list(class_probs.values())
+    colors = [color_map.get(label, '#6c757d') for label in labels]
+
+    fig = go.Figure(go.Bar(
+        x=labels,
+        y=values,
+        marker_color=colors,
+        text=[f"{v:.1f}%" for v in values],
+        textposition='outside'
+    ))
+    fig.update_layout(
+        title="Model Probability by Class",
+        yaxis=dict(range=[0, 110], title="Probability (%)"),
+        xaxis=dict(title="Decision Class"),
+        height=250,
+        margin=dict(l=20, r=20, t=40, b=20),
+        showlegend=False
+    )
+    return fig
