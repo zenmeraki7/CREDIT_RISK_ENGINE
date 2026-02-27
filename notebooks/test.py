@@ -11923,18 +11923,29 @@ import cv2
 from PIL import Image
 from pdf2image import convert_from_bytes
 
+
+
+import sys
+from pathlib import Path
+
+# Add parent (loan) and grandparent (credit_risk_engine) directories to sys.path
+current_file = Path(__file__).resolve()
+parent_dir = current_file.parent.parent          # /loan
+grandparent_dir = current_file.parent.parent.parent  # /credit_risk_engine
+
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+if str(grandparent_dir) not in sys.path:
+    sys.path.insert(0, str(grandparent_dir))
+
 # =============================================================================
 # IMPORT UTILITY MODULES
 # =============================================================================
-from css_styles import CSS
 from affordability_engine import calculate_emi, calculate_affordability
 from reason_codes import generate_reason_codes
 from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
 from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
-import stage2_engine
-from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
 
-warnings.filterwarnings('ignore')
 
 # =============================================================================
 # PAGE CONFIGURATION – MUST BE FIRST STREAMLIT COMMAND
