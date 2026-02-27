@@ -12846,7 +12846,7 @@ pd_percentage = calculate_final_pd(
     recent_inquiries=recent_inquiries,
     ml_decision=ml_decision
 )
-    return {
+return {
         'decision': ml_decision,
         'reason': "Decision based on comprehensive assessment",
         'confidence': confidence,
