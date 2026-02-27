@@ -89,7 +89,6 @@
 
 
 
-
 """
 Affordability Calculation Engine
 Calculates FOIR, EMI, and Net Disposable Income
@@ -194,3 +193,40 @@ def get_affordability_message(affordability_data):
         return f"⚠️ EMI is high ({foir:.1f}% of income). Manual review required."
     else:
         return f"❌ EMI exceeds maximum limit ({foir:.1f}% > {FOIR_HARD_LIMIT}%). Loan not affordable."
+
+
+def check_loan_to_income(loan_amount, annual_income):
+    """
+    Check loan-to-income ratio.
+    Returns dict with ratio, status, and message.
+    Status: 'ok', 'high', 'extreme'
+    """
+    ratio = round(loan_amount / annual_income, 2) if annual_income > 0 else 99
+    if ratio <= 3:
+        status = 'ok'
+        message = f"Loan-to-income ratio {ratio}x is acceptable"
+    elif ratio <= 5:
+        status = 'high'
+        message = f"Loan-to-income ratio {ratio}x is high — review recommended"
+    else:
+        status = 'extreme'
+        message = f"Loan-to-income ratio {ratio}x is extreme — high default risk"
+    return {'ratio': ratio, 'status': status, 'message': message}
+
+
+def check_net_disposable(net_disposable, minimum=10000):
+    """
+    Check net disposable income against minimum threshold.
+    Returns dict with status and message.
+    Status: 'ok', 'low', 'critical'
+    """
+    if net_disposable >= minimum:
+        status = 'ok'
+        message = f"Net disposable ₹{net_disposable:,} is above minimum"
+    elif net_disposable >= 0:
+        status = 'low'
+        message = f"Net disposable ₹{net_disposable:,} is below recommended minimum ₹{minimum:,}"
+    else:
+        status = 'critical'
+        message = f"Net disposable ₹{net_disposable:,} is negative — over-leveraged"
+    return {'net_disposable': net_disposable, 'status': status, 'message': message, 'minimum': minimum}
