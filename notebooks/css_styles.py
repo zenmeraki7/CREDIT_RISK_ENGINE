@@ -5,24 +5,24 @@ CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-    /* Primary palette – pastel version */
-    --fern-green: #6C7A89;        /* muted slate blue (primary dark) */
-    --sage: #C1D5C0;               /* soft sage green */
-    --cosmic-latte: #FFF9E6;       /* light cream */
-    --jasmine: #FFDAB9;             /* soft peach */
-    --saffron: #FFF5BA;             /* pastel yellow (accent) */
+    /* Primary palette – inspired by the green images */
+    --fern-green: #104908;        /* deep forest (dark) */
+    --sage: #537B2F;               /* farm green (mid) */
+    --cosmic-latte: #E4EB9C;       /* mintdaro (light background) */
+    --jasmine: #8DA750;             /* asparagus (light green) */
+    --saffron: #D5D170;             /* soft gold (accent) */
 
     /* Derived shades */
-    --dark-fern: #4A5A6A;           /* darker slate */
-    --light-sage: #E0ECDE;          /* very light sage */
-    --fern-dark: #4A5A6A;           /* alias for dark-fern */
-    --fern-light: #8A9BA8;          /* lighter slate */
-    --sage-light: #E0ECDE;
-    --sage-dark: #A2B5A0;           /* muted green-grey */
-    --gold: #FFE5B4;                 /* soft peach/gold */
-    --gold-light: #FFF0DB;           /* very light peach */
+    --dark-fern: #012D04;           /* very dark green */
+    --light-sage: #D8F3DC;          /* riyanto (very light) */
+    --fern-dark: #2D6514;           /* cal poly green */
+    --fern-light: #7C9D39;           /* lighter green */
+    --sage-light: #B7E4C7;           /* credition */
+    --sage-dark: #2D6514;            /* same as fern-dark */
+    --gold: #D5D170;                 /* soft gold */
+    --gold-light: #E4EB9C;           /* mintdaro */
 
-    /* Greys – kept neutral but can be softened */
+    /* Greys – kept neutral */
     --white: #FFFFFF;
     --off-white: #FAFAFA;
     --gray-50: #F9FAFB;
@@ -36,30 +36,30 @@ CSS = """
     --gray-800: #1F2937;
     --gray-900: #111827;
 
-    /* Semantic status – pastel versions */
-    --success: #A8E6CF;             /* soft mint green */
+    /* Semantic status – soft greens and complements */
+    --success: #74C69D;              /* merit */
     --success-light: #D1FAE5;
-    --warning: #FFD3B6;              /* soft apricot */
+    --warning: #D5D170;               /* soft gold */
     --warning-light: #FEF3C7;
-    --danger: #FFB7B2;               /* soft coral */
+    --danger: #E5989B;                 /* soft coral (to keep distinct) */
     --danger-light: #FEE2E2;
-    --info: #B5EAD7;                  /* soft seafoam */
+    --info: #95D5B2;                   /* light green */
     --info-light: #DBEAFE;
 
-    /* Shadows – use the primary colour with low opacity */
-    --shadow-sm: 0 1px 2px 0 rgba(108, 122, 137, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(108, 122, 137, 0.1), 0 2px 4px -1px rgba(108, 122, 137, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(108, 122, 137, 0.15), 0 4px 6px -2px rgba(108, 122, 137, 0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(108, 122, 137, 0.2), 0 10px 10px -5px rgba(108, 122, 137, 0.04);
-    --shadow-2xl: 0 25px 50px -12px rgba(108, 122, 137, 0.25);
+    /* Shadows – use primary dark with low opacity */
+    --shadow-sm: 0 1px 2px 0 rgba(16, 73, 8, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(16, 73, 8, 0.1), 0 2px 4px -1px rgba(16, 73, 8, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(16, 73, 8, 0.15), 0 4px 6px -2px rgba(16, 73, 8, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(16, 73, 8, 0.2), 0 10px 10px -5px rgba(16, 73, 8, 0.04);
+    --shadow-2xl: 0 25px 50px -12px rgba(16, 73, 8, 0.25);
 
     /* Glass effects */
     --glass-bg: rgba(255, 255, 255, 0.7);
-    --glass-border: rgba(108, 122, 137, 0.15);
+    --glass-border: rgba(16, 73, 8, 0.15);
 
     /* Additional variables for components */
     --text-secondary: var(--gray-600);
-    --border-light: rgba(108, 122, 137, 0.2);
+    --border-light: rgba(16, 73, 8, 0.2);
     --transition: var(--transition-base);
 
     /* Transitions */
@@ -221,7 +221,7 @@ CSS = """
     color: var(--fern-green) !important;
 }
 .stDownloadButton button:hover {
-    background: #e6dba8 !important;  /* slightly darker pastel yellow */
+    background: #c4b85c !important;  /* slightly darker gold */
     transform: translateY(-2px) !important;
 }
 
@@ -267,7 +267,7 @@ CSS = """
 }
 .stNumberInput input:focus, .stSelectbox select:focus, .stTextInput input:focus {
     border-color: var(--saffron) !important;
-    box-shadow: 0 0 0 3px rgba(255, 245, 186, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(213, 209, 112, 0.5) !important;
 }
 
 /* ==================== BADGES ==================== */
@@ -296,7 +296,7 @@ CSS = """
 
 /* ==================== REASON ITEMS ==================== */
 .reason-item {
-    background: rgba(108, 122, 137, 0.1);  /* using --fern-green with opacity */
+    background: rgba(16, 73, 8, 0.1);  /* fern-green with opacity */
     border-left: 5px solid var(--saffron);
     padding: 1.2rem;
     border-radius: 12px;
