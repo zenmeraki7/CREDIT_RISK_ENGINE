@@ -1,14 +1,6 @@
 
 
 # CORRECTED test.py - VERSION 8.2 (FIXED: use_two_stage session state, tab4 indentation, page fallback)
-"""
-Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
-Enhanced with Modern UI/UX Design
-Run with: streamlit run test.py (from inside the notebooks folder)
-Author: Zen Meraki
-Date: January 2026
-VERSION: 8.2 - COMPLETELY FIXED PD CALCULATION & AUDIT PDF
-"""
 
 
 """
@@ -41,6 +33,7 @@ import re
 import cv2
 from PIL import Image
 from pdf2image import convert_from_bytes
+
 
 # =============================================================================
 # DYNAMIC PATH RESOLUTION – MAKE ALL PROJECT MODULES IMPORTABLE
