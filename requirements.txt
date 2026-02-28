@@ -1,7 +1,20 @@
-﻿joblib==1.3.2
-streamlit==1.29.0
-pandas==2.1.3
-numpy==1.26.2
-plotly==5.18.0
-scikit-learn==1.3.2
-reportlab==3.6.12
+# ── Core App ──────────────────────────────────────────────────────────────────
+streamlit>=1.29.0
+pandas>=2.0.0
+numpy>=1.26.0
+plotly>=5.18.0
+joblib>=1.3.0
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# ── PDF Report Generation ─────────────────────────────────────────────────────
+reportlab>=3.6.0
+
+# ── OCR Dependencies ──────────────────────────────────────────────────────────
+# System packages also required — see packages.txt:
+#   tesseract-ocr  tesseract-ocr-eng  poppler-utils  libgl1-mesa-glx  libglib2.0-0
+pytesseract>=0.3.10
+pdf2image>=1.16.3
+# Use headless build — avoids libGL errors on Streamlit Cloud (no display)
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
