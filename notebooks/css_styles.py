@@ -2,322 +2,372 @@
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* ========== FONTS ========== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+/* ========== CSS VARIABLES ========== */
 :root {
-    /* Primary palette – inspired by the green images */
-    --fern-green: #104908;        /* deep forest (dark) */
-    --sage: #537B2F;               /* farm green (mid) */
-    --cosmic-latte: #E4EB9C;       /* mintdaro (light background) */
-    --jasmine: #8DA750;             /* asparagus (light green) */
-    --saffron: #D5D170;             /* soft gold (accent) */
-
-    /* Derived shades */
-    --dark-fern: #012D04;           /* very dark green */
-    --light-sage: #D8F3DC;          /* riyanto (very light) */
-    --fern-dark: #2D6514;           /* cal poly green */
-    --fern-light: #7C9D39;           /* lighter green */
-    --sage-light: #B7E4C7;           /* credition */
-    --sage-dark: #2D6514;            /* same as fern-dark */
-    --gold: #D5D170;                 /* soft gold */
-    --gold-light: #E4EB9C;           /* mintdaro */
-
-    /* Greys – kept neutral */
-    --white: #FFFFFF;
-    --off-white: #FAFAFA;
-    --gray-50: #F9FAFB;
-    --gray-100: #F3F4F6;
-    --gray-200: #E5E7EB;
-    --gray-300: #D1D5DB;
-    --gray-400: #9CA3AF;
-    --gray-500: #6B7280;
-    --gray-600: #4B5563;
-    --gray-700: #374151;
-    --gray-800: #1F2937;
-    --gray-900: #111827;
-
-    /* Semantic status – soft greens and complements */
-    --success: #74C69D;              /* merit */
-    --success-light: #D1FAE5;
-    --warning: #D5D170;               /* soft gold */
-    --warning-light: #FEF3C7;
-    --danger: #E5989B;                 /* soft coral (to keep distinct) */
-    --danger-light: #FEE2E2;
-    --info: #95D5B2;                   /* light green */
-    --info-light: #DBEAFE;
-
-    /* Shadows – use primary dark with low opacity */
-    --shadow-sm: 0 1px 2px 0 rgba(16, 73, 8, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(16, 73, 8, 0.1), 0 2px 4px -1px rgba(16, 73, 8, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(16, 73, 8, 0.15), 0 4px 6px -2px rgba(16, 73, 8, 0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(16, 73, 8, 0.2), 0 10px 10px -5px rgba(16, 73, 8, 0.04);
-    --shadow-2xl: 0 25px 50px -12px rgba(16, 73, 8, 0.25);
-
-    /* Glass effects */
-    --glass-bg: rgba(255, 255, 255, 0.7);
-    --glass-border: rgba(16, 73, 8, 0.15);
-
-    /* Additional variables for components */
-    --text-secondary: var(--gray-600);
-    --border-light: rgba(16, 73, 8, 0.2);
-    --transition: var(--transition-base);
-
-    /* Transitions */
-    --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    /* Modern neutral palette */
+    --bg-light: #F8FAFC;           /* very light grey background */
+    --card-bg: #FFFFFF;             /* pure white for cards */
+    --text-primary: #1E293B;        /* dark slate for headings */
+    --text-secondary: #475569;       /* softer grey for labels */
+    --border-subtle: #E2E8F0;       /* light border */
+    --accent: #2563EB;               /* vibrant blue for primary actions */
+    --accent-soft: #3B82F6;          /* slightly lighter blue for hover */
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+    
+    /* Status colors */
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --info: #3B82F6;
+    
+    /* Spacing */
+    --space-xs: 0.5rem;
+    --space-sm: 1rem;
+    --space-md: 1.5rem;
+    --space-lg: 2rem;
+    --space-xl: 3rem;
 }
 
-/* ==================== GLOBAL ==================== */
-* { font-family: 'Inter', sans-serif; }
+/* ========== GLOBAL RESET ========== */
+* {
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-light);
+    color: var(--text-primary);
+}
 
 .main {
-    background: linear-gradient(145deg, #ffffff 0%, var(--cosmic-latte) 100%);
+    background: var(--bg-light);
+    padding: var(--space-lg) 0;
 }
 
-.block-container { padding: 2rem; }
+.block-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 var(--space-lg);
+}
 
-/* ==================== HEADERS ==================== */
+/* ========== HEADERS ========== */
 .main-header {
-    font-size: 3rem;
-    font-weight: 800;
-    color: var(--fern-green);
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: var(--text-primary);
     text-align: center;
-    margin: 2rem 0;
+    margin: var(--space-xl) 0 var(--space-lg);
     letter-spacing: -0.02em;
     position: relative;
 }
 .main-header::after {
     content: '';
-    position: absolute;
-    bottom: -10px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 120px;
+    display: block;
+    width: 80px;
     height: 4px;
-    background: linear-gradient(90deg, transparent, var(--saffron), transparent);
+    background: var(--accent);
+    margin: var(--space-sm) auto 0;
     border-radius: 2px;
 }
 
 .section-header {
     font-size: 1.8rem;
-    font-weight: 700;
-    color: var(--fern-green);
-    margin: 2rem 0 1rem;
-    padding-left: 1rem;
-    border-left: 5px solid var(--saffron);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: var(--space-lg) 0 var(--space-md);
+    padding-bottom: var(--space-xs);
+    border-bottom: 2px solid var(--border-subtle);
 }
 
-/* ==================== CARDS ==================== */
-.info-card {
-    background: var(--glass-bg);
-    backdrop-filter: blur(10px);
-    border-radius: 20px;
-    padding: 1.8rem;
-    border: 1px solid rgba(255,255,255,0.3);
+/* ========== CARDS (glassmorphic style) ========== */
+.card {
+    background: var(--card-bg);
+    border-radius: 24px;
+    padding: var(--space-lg);
     box-shadow: var(--shadow-md);
-    transition: var(--transition);
+    border: 1px solid rgba(255,255,255,0.5);
+    backdrop-filter: blur(2px);
+    transition: all 0.2s ease;
 }
-.info-card:hover {
-    transform: translateY(-4px);
+.card:hover {
     box-shadow: var(--shadow-lg);
-    border-color: var(--saffron);
+    transform: translateY(-2px);
 }
 
-.info-card-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--fern-green);
-    margin-bottom: 1rem;
-    border-bottom: 2px solid var(--sage);
-    padding-bottom: 0.5rem;
-}
-
-/* ==================== STAT CARDS ==================== */
-.stat-card {
-    background: white;
+/* For info cards (like the ones around metrics) */
+.info-card {
+    background: var(--card-bg);
     border-radius: 20px;
-    padding: 2rem 1.5rem;
+    padding: var(--space-md);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+}
+.info-card-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.info-card-title i {
+    color: var(--accent);
+}
+
+/* ========== STAT CARDS (for metric displays) ========== */
+.stat-card {
+    background: var(--card-bg);
+    border-radius: 20px;
+    padding: var(--space-lg);
     text-align: center;
-    box-shadow: var(--shadow-md);
-    border: 1px solid var(--border-light);
-    transition: var(--transition);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 .stat-card:hover {
     transform: scale(1.02);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
 }
 .stat-number {
-    font-size: 3rem;
-    font-weight: 800;
-    color: var(--fern-green);
-    display: block;
-    margin-bottom: 0.5rem;
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
 }
 .stat-label {
     font-size: 0.9rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    margin-top: var(--space-xs);
 }
 
-/* ==================== DECISION CARD ==================== */
+/* ========== DECISION CARD ========== */
 .decision-card {
-    padding: 2.5rem;
-    border-radius: 30px;
-    margin: 2rem 0;
+    border-radius: 32px;
+    padding: var(--space-xl);
     color: white;
-    background: linear-gradient(135deg, var(--fern-green), var(--dark-fern));
+    text-align: center;
+    background: linear-gradient(135deg, #1E293B, #0F172A);
     box-shadow: var(--shadow-xl);
-    border: 1px solid rgba(255,255,255,0.1);
 }
-.decision-card.approved { background: linear-gradient(135deg, var(--success), var(--dark-fern)); }
-.decision-card.rejected { background: linear-gradient(135deg, var(--danger), var(--fern-green)); }
-.decision-card.review { background: linear-gradient(135deg, var(--saffron), var(--dark-fern)); color: var(--fern-green); }
+.decision-card.approved { background: linear-gradient(135deg, #10B981, #059669); }
+.decision-card.rejected { background: linear-gradient(135deg, #EF4444, #DC2626); }
+.decision-card.review { background: linear-gradient(135deg, #F59E0B, #D97706); }
 
 .decision-title {
     font-size: 3rem;
-    font-weight: 900;
+    font-weight: 800;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
+    gap: var(--space-sm);
 }
 .decision-subtitle {
     font-size: 1.2rem;
-    text-align: center;
-    margin-top: 1rem;
+    margin-top: var(--space-sm);
     opacity: 0.9;
 }
 
-/* ==================== BUTTONS ==================== */
+/* ========== BUTTONS ========== */
 .stButton > button, .stDownloadButton button {
-    border: none;
-    border-radius: 12px !important;
-    padding: 0.8rem 1.8rem !important;
+    border: none !important;
+    border-radius: 40px !important;
+    padding: 0.75rem 1.8rem !important;
     font-weight: 600 !important;
-    transition: var(--transition) !important;
+    font-size: 1rem !important;
+    transition: all 0.2s ease !important;
     box-shadow: var(--shadow-sm) !important;
     cursor: pointer !important;
     width: 100% !important;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
 }
 
 .stButton > button {
-    background: var(--fern-green) !important;
+    background: var(--accent) !important;
     color: white !important;
 }
 .stButton > button:hover {
-    background: var(--dark-fern) !important;
+    background: var(--accent-soft) !important;
     transform: translateY(-2px) !important;
     box-shadow: var(--shadow-lg) !important;
 }
 
 .stDownloadButton button {
-    background: var(--saffron) !important;
-    color: var(--fern-green) !important;
+    background: white !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-subtle) !important;
 }
 .stDownloadButton button:hover {
-    background: #c4b85c !important;  /* slightly darker gold */
+    background: var(--bg-light) !important;
     transform: translateY(-2px) !important;
+    box-shadow: var(--shadow-md) !important;
 }
 
-/* ==================== TABS ==================== */
+/* ========== TABS ========== */
 .stTabs [data-baseweb="tab-list"] {
-    background: white;
-    padding: 0.8rem;
-    border-radius: 50px;
+    background: var(--card-bg);
+    border-radius: 60px;
+    padding: 0.5rem;
+    gap: 0.5rem;
     box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-subtle);
 }
 .stTabs [data-baseweb="tab"] {
-    padding: 0.8rem 2rem;
-    border-radius: 30px;
+    border-radius: 40px !important;
+    padding: 0.6rem 2rem !important;
     font-weight: 600;
     color: var(--text-secondary);
+    transition: all 0.2s;
 }
 .stTabs [aria-selected="true"] {
-    background: var(--fern-green);
+    background: var(--accent) !important;
     color: white !important;
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-md) !important;
+}
+.stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    background: var(--bg-light);
+    color: var(--text-primary);
 }
 
-/* ==================== METRICS ==================== */
+/* ========== METRICS (Streamlit's built-in metric) ========== */
 [data-testid="stMetricValue"] {
     font-size: 2.5rem !important;
-    font-weight: 800 !important;
-    color: var(--fern-green) !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
 }
 [data-testid="stMetricLabel"] {
+    font-size: 0.9rem !important;
+    font-weight: 500 !important;
+    color: var(--text-secondary) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+[data-testid="stMetricDelta"] {
     font-size: 0.85rem !important;
+}
+
+/* ========== INPUT FIELDS ========== */
+.stNumberInput input, .stSelectbox select, .stTextInput input, .stDateInput input {
+    border: 2px solid var(--border-subtle) !important;
+    border-radius: 14px !important;
+    padding: 0.75rem 1rem !important;
+    background: white !important;
+    color: var(--text-primary) !important;
+    font-size: 1rem !important;
+    transition: border 0.2s, box-shadow 0.2s !important;
+}
+.stNumberInput input:focus, .stSelectbox select:focus, .stTextInput input:focus, .stDateInput input:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
+    outline: none !important;
+}
+
+.stNumberInput label, .stSelectbox label, .stTextInput label, .stDateInput label {
+    font-size: 0.9rem !important;
     font-weight: 600 !important;
     color: var(--text-secondary) !important;
+    margin-bottom: 0.25rem !important;
 }
 
-/* ==================== INPUTS ==================== */
-.stNumberInput input, .stSelectbox select, .stTextInput input {
-    border: 2px solid var(--border-light) !important;
-    border-radius: 12px !important;
-    padding: 0.8rem !important;
-    background: white !important;
-    color: var(--fern-green) !important;
-    transition: var(--transition) !important;
+/* ========== CHECKBOX & RADIO ========== */
+.stCheckbox > label, .stRadio > div {
+    color: var(--text-primary);
 }
-.stNumberInput input:focus, .stSelectbox select:focus, .stTextInput input:focus {
-    border-color: var(--saffron) !important;
-    box-shadow: 0 0 0 3px rgba(213, 209, 112, 0.5) !important;
+.stCheckbox > label:hover, .stRadio > div:hover {
+    color: var(--accent);
 }
 
-/* ==================== BADGES ==================== */
-.status-badge {
-    display: inline-block;
-    padding: 0.5rem 1.2rem;
-    border-radius: 50px;
+/* ========== DATA FRAMES ========== */
+.dataframe {
+    border-collapse: collapse;
+    width: 100%;
+    background: white;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-subtle);
+}
+.dataframe th {
+    background: var(--bg-light);
     font-weight: 600;
-    font-size: 0.85rem;
-    background: var(--sage);
-    color: white;
+    color: var(--text-primary);
+    padding: var(--space-sm);
+    text-align: left;
+    border-bottom: 2px solid var(--border-subtle);
 }
-.badge-pass { background: var(--success); }
-.badge-fail { background: var(--danger); }
-.badge-warning { background: var(--saffron); color: var(--fern-green); }
-
-/* ==================== DATA ROWS ==================== */
-.data-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 1rem;
-    border-bottom: 1px solid var(--border-light);
+.dataframe td {
+    padding: var(--space-sm);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
 }
-.data-label { font-weight: 600; color: var(--fern-green); }
-.data-value { font-weight: 700; color: var(--dark-fern); }
-
-/* ==================== REASON ITEMS ==================== */
-.reason-item {
-    background: rgba(16, 73, 8, 0.1);  /* fern-green with opacity */
-    border-left: 5px solid var(--saffron);
-    padding: 1.2rem;
-    border-radius: 12px;
-    margin-bottom: 0.8rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
+.dataframe tr:last-child td {
+    border-bottom: none;
 }
-.reason-icon { font-size: 1.5rem; color: var(--saffron); }
 
-/* ==================== SCROLLBAR ==================== */
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: var(--cosmic-latte); }
-::-webkit-scrollbar-thumb { background: var(--sage); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: var(--dark-fern); }
+/* ========== PROGRESS BAR ========== */
+.stProgress > div > div > div {
+    background: linear-gradient(90deg, var(--accent), var(--accent-soft)) !important;
+    border-radius: 20px !important;
+    box-shadow: 0 2px 4px rgba(37,99,235,0.2) !important;
+}
 
-/* ==================== RESPONSIVE ==================== */
+/* ========== EXPANDER ========== */
+.streamlit-expanderHeader {
+    background: white !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 14px !important;
+    padding: 0.75rem 1rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    transition: all 0.2s !important;
+}
+.streamlit-expanderHeader:hover {
+    border-color: var(--accent) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* ========== SIDEBAR ========== */
+[data-testid="stSidebar"] {
+    background: white;
+    border-right: 1px solid var(--border-subtle);
+    box-shadow: 2px 0 10px rgba(0,0,0,0.02);
+}
+[data-testid="stSidebar"] .block-container {
+    padding: var(--space-lg) var(--space-md);
+}
+
+/* ========== SCROLLBAR ========== */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg-light);
+}
+::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+    border-radius: 20px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+}
+
+/* ========== RESPONSIVE ========== */
 @media (max-width: 768px) {
     .main-header { font-size: 2.2rem; }
     .decision-title { font-size: 2.2rem; }
     .stat-number { font-size: 2rem; }
+    .block-container { padding: 0 var(--space-md); }
 }
 </style>
 """
