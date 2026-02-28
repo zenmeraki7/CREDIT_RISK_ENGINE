@@ -217,8 +217,8 @@ def generate_decision_pdf(decision_data, customer_data, affordability_data, reas
     story.append(Paragraph("CUSTOMER INFORMATION", heading_style))
     customer_info_data = [
         ['Age:', str(customer_data.get('age', 'N/A')), 'Employment:', customer_data.get('employment_type', 'N/A')],
-        ['Monthly Income:', f"Rs.{customer_data.get('avg_salary_6m', 0):,}", 'Bureau Score:', str(customer_data.get('bureau_score', 0))],
-        ['Loan Amount:', f"Rs.{customer_data.get('loan_amount', 0):,}", 'Tenure:', f"{customer_data.get('loan_tenure_months', 0)} months"],
+        ['Monthly Income:', f"₹{customer_data.get('avg_salary_6m', 0):,}", 'Bureau Score:', str(customer_data.get('bureau_score', 0))],
+        ['Loan Amount:', f"₹{customer_data.get('loan_amount', 0):,}", 'Tenure:', f"{customer_data.get('loan_tenure_months', 0)} months"],
         ['Interest Rate:', f"{customer_data.get('interest_rate', 0)}%", 'KYC Status:', 'Verified' if customer_data.get('kyc_verified', True) else 'Not Verified']
     ]
     
@@ -246,9 +246,9 @@ def generate_decision_pdf(decision_data, customer_data, affordability_data, reas
     existing_emi = affordability_data.get('existing_emi', 0)
     
     affordability_info = [
-        ['New EMI:', f"Rs.{new_emi:,}", 'Existing EMI:', f"Rs.{existing_emi:,}"],
-        ['Total EMI:', f"Rs.{total_emi:,}", 'FOIR:', f"{foir:.2f}%"],
-        ['Net Disposable:', f"Rs.{net_disposable:,}", 'Status:', affordability_data.get('status', 'N/A')]
+        ['New EMI:', f"₹{new_emi:,}", 'Existing EMI:', f"₹{existing_emi:,}"],
+        ['Total EMI:', f"₹{total_emi:,}", 'FOIR:', f"{foir:.2f}%"],
+        ['Net Disposable:', f"₹{net_disposable:,}", 'Status:', affordability_data.get('status', 'N/A')]
     ]
     
     affordability_table = Table(affordability_info, colWidths=[1.5*inch, 2*inch, 1.5*inch, 2*inch])
