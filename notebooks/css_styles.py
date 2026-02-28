@@ -7,26 +7,31 @@ CSS = """
 
 /* ========== CSS VARIABLES ========== */
 :root {
-    /* Modern neutral palette */
-    --bg-light: #F8FAFC;
-    --card-bg: #FFFFFF;
-    --text-primary: #1E293B;
-    --text-secondary: #475569;
-    --border-subtle: #E2E8F0;
-    --accent: #2563EB;
-    --accent-soft: #3B82F6;
+    /* New palette */
+    --navy-dark: #00002A;           /* deep navy for primary text/buttons */
+    --navy-mid: #1A3F75;             /* medium blue for accents/hover */
+    --teal-light: #44E6A9;            /* soft teal for highlights */
+    --mint-light: #44EA4C;             /* fresh mint for success states */
 
-    /* Status colors */
-    --success: #10B981;
-    --warning: #F59E0B;
-    --danger: #EF4444;
-    --info: #3B82F6;
+    /* Neutrals */
+    --bg-main: #FFFFFF;                /* pure white background */
+    --card-bg: #FFFFFF;                 /* white cards */
+    --text-primary: #1E293B;            /* dark slate for headings */
+    --text-secondary: #475569;           /* soft grey for labels */
+    --border-subtle: #E2E8F0;            /* light border */
+    --light-blue-bg: #F0F8FF;            /* very light blue for subtle backgrounds */
 
     /* Shadows */
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1);
     --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
     --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
     --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+
+    /* Status colors */
+    --success: var(--mint-light);
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --info: var(--teal-light);
 
     /* Spacing */
     --space-xs: 0.5rem;
@@ -45,12 +50,12 @@ CSS = """
 }
 
 body {
-    background-color: var(--bg-light);
+    background-color: var(--bg-main);
     color: var(--text-primary);
 }
 
 .main {
-    background: var(--bg-light);
+    background: var(--bg-main);
     padding: var(--space-lg) 0;
 }
 
@@ -64,7 +69,7 @@ body {
 .main-header {
     font-size: 2.8rem;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--navy-dark);
     text-align: center;
     margin: var(--space-xl) 0 var(--space-lg);
     letter-spacing: -0.02em;
@@ -75,7 +80,7 @@ body {
     display: block;
     width: 80px;
     height: 4px;
-    background: var(--accent);
+    background: var(--teal-light);
     margin: var(--space-sm) auto 0;
     border-radius: 2px;
 }
@@ -83,16 +88,16 @@ body {
 .section-header {
     font-size: 1.8rem;
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--navy-dark);
     margin: var(--space-lg) 0 var(--space-md);
     padding-bottom: var(--space-xs);
-    border-bottom: 2px solid var(--border-subtle);
+    border-bottom: 2px solid var(--teal-light);
 }
 
 /* ========== CARD BASE ========== */
 .card, .info-card, .stat-card {
     background: var(--card-bg);
-    border-radius: 20px;
+    border-radius: 24px;
     padding: var(--space-lg);
     border: 1px solid var(--border-subtle);
     box-shadow: var(--shadow-sm);
@@ -101,12 +106,13 @@ body {
 .card:hover, .info-card:hover, .stat-card:hover {
     box-shadow: var(--shadow-md);
     transform: translateY(-2px);
+    border-color: var(--teal-light);
 }
 
 .info-card-title {
     font-size: 1.2rem;
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--navy-dark);
     margin-bottom: var(--space-sm);
     border-bottom: 2px solid var(--border-subtle);
     padding-bottom: var(--space-xs);
@@ -115,7 +121,7 @@ body {
     gap: var(--space-xs);
 }
 .info-card-title i {
-    color: var(--accent);
+    color: var(--teal-light);
 }
 
 .info-card-content {
@@ -127,11 +133,12 @@ body {
 .stat-card {
     text-align: center;
     padding: var(--space-lg);
+    background: linear-gradient(145deg, #ffffff, var(--light-blue-bg));
 }
 .stat-number {
     font-size: 2.8rem;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--navy-dark);
     line-height: 1.2;
     display: block;
     margin-bottom: var(--space-xs);
@@ -150,18 +157,21 @@ body {
     padding: var(--space-xl);
     color: white;
     text-align: center;
-    background: linear-gradient(135deg, #1E293B, #0F172A);
+    background: linear-gradient(135deg, var(--navy-dark), var(--navy-mid));
     box-shadow: var(--shadow-xl);
     margin: var(--space-lg) 0;
+    border: 1px solid rgba(255,255,255,0.1);
 }
 .decision-card-approved {
-    background: linear-gradient(135deg, var(--success), #059669);
+    background: linear-gradient(135deg, var(--mint-light), var(--teal-light));
+    color: var(--navy-dark);
 }
 .decision-card-rejected {
-    background: linear-gradient(135deg, var(--danger), #DC2626);
+    background: linear-gradient(135deg, var(--danger), #B91C1C);
 }
 .decision-card-review {
-    background: linear-gradient(135deg, var(--warning), #D97706);
+    background: linear-gradient(135deg, var(--warning), #B45309);
+    color: var(--navy-dark);
 }
 
 .decision-title {
@@ -191,9 +201,9 @@ body {
     border: 2px solid transparent;
 }
 .badge-pass {
-    background: #D1FAE5;
-    color: var(--success);
-    border-color: var(--success);
+    background: rgba(68, 234, 76, 0.15);
+    color: #2B6E2B;
+    border-color: var(--mint-light);
 }
 .badge-fail {
     background: #FEE2E2;
@@ -217,7 +227,7 @@ body {
     border-radius: 8px;
 }
 .data-row:hover {
-    background: var(--bg-light);
+    background: var(--light-blue-bg);
     padding-left: var(--space-sm);
     padding-right: var(--space-sm);
 }
@@ -230,51 +240,50 @@ body {
 }
 .data-value {
     font-weight: 700;
-    color: var(--accent);
+    color: var(--navy-mid);
 }
 
 /* ========== REASON ITEMS ========== */
 .reason-item {
-    background: rgba(37, 99, 235, 0.05);
-    border-left: 5px solid var(--warning);
+    background: var(--light-blue-bg);
+    border-left: 5px solid var(--teal-light);
     padding: var(--space-md);
-    border-radius: 12px;
+    border-radius: 16px;
     margin-bottom: var(--space-sm);
     display: flex;
     align-items: flex-start;
     gap: var(--space-sm);
     transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
 }
 .reason-item:hover {
     transform: translateX(4px);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
+    border-left-width: 8px;
 }
 .reason-icon {
     font-size: 1.5rem;
-    color: var(--warning);
+    color: var(--teal-light);
     flex-shrink: 0;
 }
 
 /* ========== INFO/WARNING/ERROR BOXES ========== */
 .info-box, .warning-box, .error-box {
-    border-radius: 12px;
+    border-radius: 16px;
     padding: var(--space-md);
     margin: var(--space-md) 0;
     border-left: 5px solid;
-    background: rgba(0,0,0,0.02);
+    background: var(--light-blue-bg);
     box-shadow: var(--shadow-sm);
 }
 .info-box {
-    border-left-color: var(--info);
-    background: rgba(59,130,246,0.05);
+    border-left-color: var(--teal-light);
 }
 .warning-box {
     border-left-color: var(--warning);
-    background: rgba(245,158,11,0.05);
 }
 .error-box {
     border-left-color: var(--danger);
-    background: rgba(239,68,68,0.05);
 }
 
 /* ========== BUTTONS ========== */
@@ -291,24 +300,25 @@ body {
 }
 
 .stButton > button {
-    background: var(--accent) !important;
+    background: var(--navy-dark) !important;
     color: white !important;
 }
 .stButton > button:hover {
-    background: var(--accent-soft) !important;
+    background: var(--navy-mid) !important;
     transform: translateY(-2px) !important;
     box-shadow: var(--shadow-lg) !important;
 }
 
 .stDownloadButton button {
     background: white !important;
-    color: var(--text-primary) !important;
+    color: var(--navy-dark) !important;
     border: 1px solid var(--border-subtle) !important;
 }
 .stDownloadButton button:hover {
-    background: var(--bg-light) !important;
+    background: var(--light-blue-bg) !important;
     transform: translateY(-2px) !important;
     box-shadow: var(--shadow-md) !important;
+    border-color: var(--teal-light) !important;
 }
 
 /* ========== TABS ========== */
@@ -328,20 +338,20 @@ body {
     transition: all 0.2s;
 }
 .stTabs [aria-selected="true"] {
-    background: var(--accent) !important;
+    background: var(--navy-dark) !important;
     color: white !important;
     box-shadow: var(--shadow-md) !important;
 }
 .stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
-    background: var(--bg-light);
-    color: var(--text-primary);
+    background: var(--light-blue-bg);
+    color: var(--navy-dark);
 }
 
 /* ========== METRICS (Streamlit's built-in metric) ========== */
 [data-testid="stMetricValue"] {
     font-size: 2.5rem !important;
     font-weight: 700 !important;
-    color: var(--text-primary) !important;
+    color: var(--navy-dark) !important;
 }
 [data-testid="stMetricLabel"] {
     font-size: 0.9rem !important;
@@ -365,8 +375,8 @@ body {
     transition: border 0.2s, box-shadow 0.2s !important;
 }
 .stNumberInput input:focus, .stSelectbox select:focus, .stTextInput input:focus, .stDateInput input:focus {
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
+    border-color: var(--teal-light) !important;
+    box-shadow: 0 0 0 3px rgba(68, 230, 169, 0.2) !important;
     outline: none !important;
 }
 
@@ -382,7 +392,7 @@ body {
     color: var(--text-primary);
 }
 .stCheckbox > label:hover, .stRadio > div:hover {
-    color: var(--accent);
+    color: var(--navy-mid);
 }
 
 /* ========== DATA FRAMES ========== */
@@ -396,12 +406,12 @@ body {
     border: 1px solid var(--border-subtle);
 }
 .dataframe th {
-    background: var(--bg-light);
+    background: var(--light-blue-bg);
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--navy-dark);
     padding: var(--space-sm);
     text-align: left;
-    border-bottom: 2px solid var(--border-subtle);
+    border-bottom: 2px solid var(--teal-light);
 }
 .dataframe td {
     padding: var(--space-sm);
@@ -411,12 +421,15 @@ body {
 .dataframe tr:last-child td {
     border-bottom: none;
 }
+.dataframe tr:hover {
+    background: var(--light-blue-bg);
+}
 
 /* ========== PROGRESS BAR ========== */
 .stProgress > div > div > div {
-    background: linear-gradient(90deg, var(--accent), var(--accent-soft)) !important;
+    background: linear-gradient(90deg, var(--teal-light), var(--mint-light)) !important;
     border-radius: 20px !important;
-    box-shadow: 0 2px 4px rgba(37,99,235,0.2) !important;
+    box-shadow: 0 2px 4px rgba(68, 230, 169, 0.3) !important;
 }
 
 /* ========== EXPANDER ========== */
@@ -426,11 +439,11 @@ body {
     border-radius: 14px !important;
     padding: 0.75rem 1rem !important;
     font-weight: 600 !important;
-    color: var(--text-primary) !important;
+    color: var(--navy-dark) !important;
     transition: all 0.2s !important;
 }
 .streamlit-expanderHeader:hover {
-    border-color: var(--accent) !important;
+    border-color: var(--teal-light) !important;
     box-shadow: var(--shadow-sm) !important;
 }
 
@@ -443,6 +456,11 @@ body {
 [data-testid="stSidebar"] .block-container {
     padding: var(--space-lg) var(--space-md);
 }
+[data-testid="stSidebar"] .sidebar-content {
+    background: var(--light-blue-bg);
+    border-radius: 16px;
+    padding: var(--space-sm);
+}
 
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar {
@@ -450,14 +468,14 @@ body {
     height: 8px;
 }
 ::-webkit-scrollbar-track {
-    background: var(--bg-light);
+    background: var(--light-blue-bg);
 }
 ::-webkit-scrollbar-thumb {
-    background: #CBD5E1;
+    background: var(--teal-light);
     border-radius: 20px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #94A3B8;
+    background: var(--navy-mid);
 }
 
 /* ========== RESPONSIVE ========== */
@@ -473,15 +491,15 @@ hr {
     margin: var(--space-lg) 0;
     border: none;
     height: 2px;
-    background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+    background: linear-gradient(90deg, transparent, var(--teal-light), transparent);
 }
 ::placeholder {
     color: var(--text-secondary) !important;
     opacity: 0.6 !important;
 }
 ::selection {
-    background: var(--accent);
-    color: white;
+    background: var(--teal-light);
+    color: var(--navy-dark);
 }
 </style>
 """
