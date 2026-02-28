@@ -36,7 +36,7 @@ CSS = """
     --gray-800: #1F2937;
     --gray-900: #111827;
 
-    /* Semantic status – keep original or adapt to pastel */
+    /* Semantic status – pastel versions */
     --success: #A8E6CF;             /* soft mint green */
     --success-light: #D1FAE5;
     --warning: #FFD3B6;              /* soft apricot */
@@ -57,17 +57,23 @@ CSS = """
     --glass-bg: rgba(255, 255, 255, 0.7);
     --glass-border: rgba(108, 122, 137, 0.15);
 
-    /* Transitions – unchanged */
+    /* Additional variables for components */
+    --text-secondary: var(--gray-600);
+    --border-light: rgba(108, 122, 137, 0.2);
+    --transition: var(--transition-base);
+
+    /* Transitions */
     --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
+
 /* ==================== GLOBAL ==================== */
 * { font-family: 'Inter', sans-serif; }
 
 .main {
-    background: linear-gradient(145deg, #ffffff 0%, var(--lavender-light) 100%);
+    background: linear-gradient(145deg, #ffffff 0%, var(--cosmic-latte) 100%);
 }
 
 .block-container { padding: 2rem; }
@@ -76,7 +82,7 @@ CSS = """
 .main-header {
     font-size: 3rem;
     font-weight: 800;
-    color: var(--navy-dark);
+    color: var(--fern-green);
     text-align: center;
     margin: 2rem 0;
     letter-spacing: -0.02em;
@@ -90,22 +96,22 @@ CSS = """
     transform: translateX(-50%);
     width: 120px;
     height: 4px;
-    background: linear-gradient(90deg, transparent, var(--accent-warm), transparent);
+    background: linear-gradient(90deg, transparent, var(--saffron), transparent);
     border-radius: 2px;
 }
 
 .section-header {
     font-size: 1.8rem;
     font-weight: 700;
-    color: var(--navy-dark);
+    color: var(--fern-green);
     margin: 2rem 0 1rem;
     padding-left: 1rem;
-    border-left: 5px solid var(--accent-warm);
+    border-left: 5px solid var(--saffron);
 }
 
 /* ==================== CARDS ==================== */
 .info-card {
-    background: var(--card-bg);
+    background: var(--glass-bg);
     backdrop-filter: blur(10px);
     border-radius: 20px;
     padding: 1.8rem;
@@ -116,15 +122,15 @@ CSS = """
 .info-card:hover {
     transform: translateY(-4px);
     box-shadow: var(--shadow-lg);
-    border-color: var(--accent-warm);
+    border-color: var(--saffron);
 }
 
 .info-card-title {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--navy-dark);
+    color: var(--fern-green);
     margin-bottom: 1rem;
-    border-bottom: 2px solid var(--blue-soft);
+    border-bottom: 2px solid var(--sage);
     padding-bottom: 0.5rem;
 }
 
@@ -145,7 +151,7 @@ CSS = """
 .stat-number {
     font-size: 3rem;
     font-weight: 800;
-    color: var(--navy-dark);
+    color: var(--fern-green);
     display: block;
     margin-bottom: 0.5rem;
 }
@@ -163,13 +169,13 @@ CSS = """
     border-radius: 30px;
     margin: 2rem 0;
     color: white;
-    background: linear-gradient(135deg, var(--navy-dark), var(--blue-deep));
+    background: linear-gradient(135deg, var(--fern-green), var(--dark-fern));
     box-shadow: var(--shadow-xl);
     border: 1px solid rgba(255,255,255,0.1);
 }
-.decision-card.approved { background: linear-gradient(135deg, #10B981, var(--blue-deep)); }
-.decision-card.rejected { background: linear-gradient(135deg, #EF4444, var(--navy-dark)); }
-.decision-card.review { background: linear-gradient(135deg, var(--accent-warm), var(--blue-deep)); color: var(--navy-dark); }
+.decision-card.approved { background: linear-gradient(135deg, var(--success), var(--dark-fern)); }
+.decision-card.rejected { background: linear-gradient(135deg, var(--danger), var(--fern-green)); }
+.decision-card.review { background: linear-gradient(135deg, var(--saffron), var(--dark-fern)); color: var(--fern-green); }
 
 .decision-title {
     font-size: 3rem;
@@ -201,21 +207,21 @@ CSS = """
 }
 
 .stButton > button {
-    background: var(--navy-dark) !important;
+    background: var(--fern-green) !important;
     color: white !important;
 }
 .stButton > button:hover {
-    background: var(--blue-deep) !important;
+    background: var(--dark-fern) !important;
     transform: translateY(-2px) !important;
     box-shadow: var(--shadow-lg) !important;
 }
 
 .stDownloadButton button {
-    background: var(--accent-warm) !important;
-    color: var(--navy-dark) !important;
+    background: var(--saffron) !important;
+    color: var(--fern-green) !important;
 }
 .stDownloadButton button:hover {
-    background: #e0b01a !important;
+    background: #e6dba8 !important;  /* slightly darker pastel yellow */
     transform: translateY(-2px) !important;
 }
 
@@ -233,7 +239,7 @@ CSS = """
     color: var(--text-secondary);
 }
 .stTabs [aria-selected="true"] {
-    background: var(--navy-dark);
+    background: var(--fern-green);
     color: white !important;
     box-shadow: var(--shadow-md);
 }
@@ -242,7 +248,7 @@ CSS = """
 [data-testid="stMetricValue"] {
     font-size: 2.5rem !important;
     font-weight: 800 !important;
-    color: var(--navy-dark) !important;
+    color: var(--fern-green) !important;
 }
 [data-testid="stMetricLabel"] {
     font-size: 0.85rem !important;
@@ -256,12 +262,12 @@ CSS = """
     border-radius: 12px !important;
     padding: 0.8rem !important;
     background: white !important;
-    color: var(--navy-dark) !important;
+    color: var(--fern-green) !important;
     transition: var(--transition) !important;
 }
 .stNumberInput input:focus, .stSelectbox select:focus, .stTextInput input:focus {
-    border-color: var(--accent-warm) !important;
-    box-shadow: 0 0 0 3px rgba(246,197,49,0.2) !important;
+    border-color: var(--saffron) !important;
+    box-shadow: 0 0 0 3px rgba(255, 245, 186, 0.5) !important;
 }
 
 /* ==================== BADGES ==================== */
@@ -271,12 +277,12 @@ CSS = """
     border-radius: 50px;
     font-weight: 600;
     font-size: 0.85rem;
-    background: var(--blue-soft);
+    background: var(--sage);
     color: white;
 }
 .badge-pass { background: var(--success); }
 .badge-fail { background: var(--danger); }
-.badge-warning { background: var(--accent-warm); color: var(--navy-dark); }
+.badge-warning { background: var(--saffron); color: var(--fern-green); }
 
 /* ==================== DATA ROWS ==================== */
 .data-row {
@@ -285,13 +291,13 @@ CSS = """
     padding: 1rem;
     border-bottom: 1px solid var(--border-light);
 }
-.data-label { font-weight: 600; color: var(--navy-dark); }
-.data-value { font-weight: 700; color: var(--blue-deep); }
+.data-label { font-weight: 600; color: var(--fern-green); }
+.data-value { font-weight: 700; color: var(--dark-fern); }
 
 /* ==================== REASON ITEMS ==================== */
 .reason-item {
-    background: rgba(136,151,189,0.1);
-    border-left: 5px solid var(--accent-warm);
+    background: rgba(108, 122, 137, 0.1);  /* using --fern-green with opacity */
+    border-left: 5px solid var(--saffron);
     padding: 1.2rem;
     border-radius: 12px;
     margin-bottom: 0.8rem;
@@ -299,13 +305,13 @@ CSS = """
     align-items: center;
     gap: 1rem;
 }
-.reason-icon { font-size: 1.5rem; color: var(--accent-warm); }
+.reason-icon { font-size: 1.5rem; color: var(--saffron); }
 
 /* ==================== SCROLLBAR ==================== */
 ::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: var(--lavender-light); }
-::-webkit-scrollbar-thumb { background: var(--blue-soft); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: var(--blue-deep); }
+::-webkit-scrollbar-track { background: var(--cosmic-latte); }
+::-webkit-scrollbar-thumb { background: var(--sage); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dark-fern); }
 
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 768px) {
