@@ -11891,14 +11891,13 @@
 
 
 
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
 Run with: streamlit run test.py (from inside the notebooks folder)
 Author: Zen Meraki
 Date: January 2026
-VERSION: 8.3 - CLEANED & MODULAR
+VERSION: 8.3 - FULLY CORRECTED
 """
 
 import streamlit as st
@@ -11924,14 +11923,10 @@ from PIL import Image
 from pdf2image import convert_from_bytes
 
 # =============================================================================
-# DYNAMIC PATH RESOLUTION FOR UTILITY MODULES
+# DYNAMIC PATH RESOLUTION – MAKE ALL PROJECT MODULES IMPORTABLE
 # =============================================================================
-import sys
-from pathlib import Path
-
-# Get the absolute path of the current script
-CURRENT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = CURRENT_DIR.parent          # Typically /mount/src/credit_risk_engine
+CURRENT_DIR = Path(__file__).resolve().parent          # notebooks/
+PROJECT_ROOT = CURRENT_DIR.parent                      # credit_risk_engine/
 POSSIBLE_LOCATIONS = [
     CURRENT_DIR,                           # notebooks/
     PROJECT_ROOT,                           # credit_risk_engine/
@@ -11940,40 +11935,12 @@ POSSIBLE_LOCATIONS = [
     PROJECT_ROOT / "notebooks",               # credit_risk_engine/notebooks/
 ]
 
-# Add each location to sys.path if it exists and not already present
 for loc in POSSIBLE_LOCATIONS:
     if loc.exists() and str(loc) not in sys.path:
         sys.path.insert(0, str(loc))
 
-# Attempt to import the modules
-try:
-    from affordability_engine import calculate_emi, calculate_affordability
-    from reason_codes import generate_reason_codes
-    from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
-    from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
-except ModuleNotFoundError as e:
-    st.error(f"❌ Failed to import required modules: {e}")
-    st.info("""
-    Please ensure the following files are placed in one of these directories:
-    - `notebooks/` (same folder as test.py)
-    - `loan/` (sibling of notebooks)
-    - `utils/` (containing pdf_generator.py and __init__.py)
-    - The project root (`credit_risk_engine/`)
-    
-    Required files:
-    - affordability_engine.py
-    - reason_codes.py
-    - risk_engine.py
-    - utils/__init__.py
-    - utils/pdf_generator.py
-    """)
-    st.stop()
 # =============================================================================
-# IMPORT css
-# =============================================================================
-
-# =============================================================================
-# IMPORT CSS – FIXED WITH FALLBACK
+# IMPORT CSS – WITH FALLBACK
 # =============================================================================
 try:
     from css_styles import CSS
@@ -12007,25 +11974,66 @@ except ImportError:
         .reason-icon { color: #587042; font-weight: bold; margin-right: 0.5rem; }
     </style>
     """
-        
-# =============================================================================
-# PAGE CONFIGURATION – MUST BE FIRST STREAMLIT COMMAND
-# =============================================================================
-st.set_page_config(
-    page_title="Credit Risk Assessment",
-    page_icon="💳",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-st.markdown(CSS, unsafe_allow_html=True)
 
 # =============================================================================
-# GLOBAL FLAGS FOR AVAILABILITY
+# IMPORT BUSINESS LOGIC MODULES – WITH HELPFUL ERROR IF MISSING
 # =============================================================================
-STAGE2_AVAILABLE = stage2_engine.STAGE2_AVAILABLE if hasattr(stage2_engine, 'STAGE2_AVAILABLE') else False
-OCR_AVAILABLE = True  # Assume OCR libraries are installed; errors caught later
-PDF_AVAILABLE = True  # Assume PDF generation is available
+try:
+    from affordability_engine import calculate_emi, calculate_affordability
+    from reason_codes import generate_reason_codes
+    from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
+except ImportError as e:
+    st.error(f"❌ Failed to import required modules: {e}")
+    st.info("""
+    Please ensure the following files are placed in one of these directories:
+    - `notebooks/` (same folder as test.py)
+    - `loan/` (sibling of notebooks)
+    - `utils/` (containing pdf_generator.py and __init__.py)
+    - The project root (`credit_risk_engine/`)
+    
+    Required files:
+    - affordability_engine.py
+    - reason_codes.py
+    - risk_engine.py
+    - utils/__init__.py
+    - utils/pdf_generator.py
+    """)
+    st.stop()
+
+# =============================================================================
+# STAGE 2 ENGINE – ROBUST FALLBACK
+# =============================================================================
+try:
+    import stage2_engine
+    from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
+    STAGE2_AVAILABLE = is_stage2_available()  # Use the function, not a direct attribute
+except ImportError:
+    stage2_engine = None
+    STAGE2_AVAILABLE = False
+    # Define dummy functions so the rest of the code doesn't crash
+    def make_two_stage_decision(*args, **kwargs):
+        raise NotImplementedError("Stage 2 engine not available")
+    def is_stage2_available():
+        return False
+    def get_stage2_status():
+        return {"error": "Stage 2 engine module not found", "available": False}
+
+# =============================================================================
+# PDF GENERATION – SAFE FALLBACK
+# =============================================================================
+PDF_AVAILABLE = False
+generate_decision_pdf = None
+generate_audit_pdf = None
+try:
+    from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
+    PDF_AVAILABLE = True
+except ImportError:
+    pass   # Already set to False
+
+# =============================================================================
+# OCR AVAILABILITY – WILL BE CHECKED INSIDE EXTRACTION FUNCTION
+# =============================================================================
+OCR_AVAILABLE = True   # Assume installed; errors caught later
 
 # =============================================================================
 # JSON SANITIZER
@@ -12072,6 +12080,17 @@ def init_session_state():
     if 'stage2_selected_tab' not in st.session_state:
         st.session_state.stage2_selected_tab = "Manual Entry"
 
+# =============================================================================
+# PAGE CONFIGURATION – MUST BE FIRST STREAMLIT COMMAND
+# =============================================================================
+st.set_page_config(
+    page_title="Credit Risk Assessment",
+    page_icon="💳",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown(CSS, unsafe_allow_html=True)
 init_session_state()
 
 # =============================================================================
@@ -12749,7 +12768,7 @@ def create_download_link(df, filename="batch_results.csv"):
     return f'<a href="data:file/csv;base64,{b64}" download="{filename}" style="text-decoration: none;">📥 Download CSV</a>'
 
 # =============================================================================
-# MODERN UI COMPONENTS (Kept in test.py for customization)
+# MODERN UI COMPONENTS
 # =============================================================================
 def render_decision_header(decision_data, customer_data):
     decision = decision_data.get('decision', 'ERROR')
@@ -13077,7 +13096,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    stage2_indicator = '✅ Active' if STAGE2_AVAILABLE and is_stage2_available() else '❌ Inactive'
+    stage2_indicator = '✅ Active' if STAGE2_AVAILABLE else '❌ Inactive'
     ocr_indicator = '✅ Ready' if OCR_AVAILABLE else '❌ Not Installed'
     pdf_indicator = '✅ Ready' if PDF_AVAILABLE else '❌ Not Installed'
 
@@ -13674,7 +13693,7 @@ elif page == "🔬 Stage 2 Analysis":
             st.rerun()
         st.stop()
 
-    if not (STAGE2_AVAILABLE and is_stage2_available()):
+    if not (STAGE2_AVAILABLE):
         st.error("❌ Stage 2 model not available!")
         st.info("Please ensure `stage2_cibil_model.pkl` is in the project directory.")
         if st.button("← Go Back", use_container_width=True):
@@ -14043,8 +14062,146 @@ elif page == "🔬 Stage 2 Analysis":
         st.info("📊 Batch analysis feature coming soon!")
 
 elif page == "📊 Batch Process":
-    # (Existing batch processing code – unchanged for brevity)
-    pass
+    # Batch processing page code (as in original, unchanged for brevity)
+    # We'll keep the original implementation here.
+    st.markdown('<p class="main-header">Batch Processing</p>', unsafe_allow_html=True)
+    st.markdown("""
+        <div class="info-box">
+            📤 Upload a CSV file with customer data for bulk credit assessment.
+            The file should include all required fields for prediction.
+        </div>
+    """, unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.success(f"✅ Successfully loaded {len(df)} records")
+            with st.expander("📄 Preview Uploaded Data"):
+                st.dataframe(df.head(), use_container_width=True)
+                st.write(f"**Total Records:** {len(df)}")
+                st.write(f"**Columns:** {', '.join(df.columns.tolist())}")
+            required_cols = ['age', 'employment_type', 'avg_salary_6m', 'bureau_score', 'loan_amount']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
+                st.info("Please ensure your CSV includes at least these columns: age, employment_type, avg_salary_6m, bureau_score, loan_amount")
+            else:
+                if st.button("🚀 Process Batch Predictions", key="process_batch_btn", type="primary", use_container_width=True):
+                    with st.spinner(f"🔍 Processing {len(df)} records..."):
+                        progress_bar = st.progress(0)
+                        results_df = process_batch_predictions(df)
+                        progress_bar.progress(100)
+                        st.success(f"✅ Completed processing {len(results_df)} records!")
+                        tab1, tab2, tab3 = st.tabs(["📊 Results", "📈 Analytics", "📥 Download"])
+                        with tab1:
+                            st.dataframe(results_df, use_container_width=True)
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                approved_count = len(results_df[results_df['decision'] == 'APPROVE'])
+                                st.metric("✅ Approved", approved_count)
+                            with col2:
+                                rejected_count = len(results_df[results_df['decision'] == 'REJECT'])
+                                st.metric("❌ Rejected", rejected_count)
+                            with col3:
+                                review_count = len(results_df[results_df['decision'] == 'REVIEW'])
+                                st.metric("⚠️ Review", review_count)
+                            with col4:
+                                avg_risk = results_df['risk_score'].mean()
+                                st.metric("📊 Avg Risk Score", f"{avg_risk:.0f}")
+                        with tab2:
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                decision_counts = results_df['decision'].value_counts()
+                                fig1 = px.pie(values=decision_counts.values, names=decision_counts.index,
+                                              title="Decision Distribution", color=decision_counts.index,
+                                              color_discrete_map={'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'})
+                                st.plotly_chart(fig1, use_container_width=True)
+                            with col2:
+                                fig2 = px.histogram(results_df, x='risk_score', title="Risk Score Distribution",
+                                                    nbins=20, color_discrete_sequence=['#587042'])
+                                st.plotly_chart(fig2, use_container_width=True)
+                            fig3 = px.scatter(results_df, x='monthly_income', y='loan_amount', color='decision',
+                                              size='risk_score', title="Income vs Loan Amount (Colored by Decision)",
+                                              hover_data=['application_id', 'foir_percentage'],
+                                              color_discrete_map={'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'})
+                            st.plotly_chart(fig3, use_container_width=True)
+                            fig4 = px.box(results_df, x='decision', y='pd_percentage',
+                                          title="PD Distribution by Decision", color='decision',
+                                          color_discrete_map={'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'})
+                            st.plotly_chart(fig4, use_container_width=True)
+                        with tab3:
+                            st.markdown("### Download Results")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                csv = results_df.to_csv(index=False)
+                                st.download_button("📥 Download as CSV", data=csv,
+                                                   file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                   mime="text/csv", use_container_width=True)
+                            with col2:
+                                json_data = results_df.to_json(orient='records', indent=2)
+                                st.download_button("📥 Download as JSON", data=json_data,
+                                                   file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                                   mime="application/json", use_container_width=True)
+                            st.markdown("---")
+                            st.markdown("#### Filtered Downloads")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                approved_df = results_df[results_df['decision'] == 'APPROVE']
+                                if len(approved_df) > 0:
+                                    st.download_button(f"✅ Approved Only ({len(approved_df)})",
+                                                       data=approved_df.to_csv(index=False),
+                                                       file_name=f"approved_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                       mime="text/csv", use_container_width=True)
+                            with col2:
+                                rejected_df = results_df[results_df['decision'] == 'REJECT']
+                                if len(rejected_df) > 0:
+                                    st.download_button(f"❌ Rejected Only ({len(rejected_df)})",
+                                                       data=rejected_df.to_csv(index=False),
+                                                       file_name=f"rejected_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                       mime="text/csv", use_container_width=True)
+                            with col3:
+                                review_df = results_df[results_df['decision'] == 'REVIEW']
+                                if len(review_df) > 0:
+                                    st.download_button(f"⚠️ Review Only ({len(review_df)})",
+                                                       data=review_df.to_csv(index=False),
+                                                       file_name=f"review_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                       mime="text/csv", use_container_width=True)
+        except Exception as e:
+            st.error(f"❌ Error processing file: {str(e)}")
+            st.info("Please ensure the CSV file is properly formatted and contains the required columns.")
+    else:
+        st.markdown("---")
+        st.markdown("### 📋 CSV Template")
+        template_data = {
+            'age': [35, 42, 28],
+            'employment_type': ['Salaried', 'Self-Employed', 'Salaried'],
+            'dependents': [2, 3, 6],
+            'kyc_verified': ['Yes', 'Yes', 'No'],
+            'bankruptcy_flag': ['No', 'No', 'No'],
+            'fraud_flag': ['No', 'No', 'No'],
+            'employment_tenure_months': [24, 0, 18],
+            'business_vintage_years': [0, 5, 0],
+            'bureau_score': [720, 680, 580],
+            'dpd_90_count_6m': [0, 1, 2],
+            'dpd_30_count_6m': [0, 2, 1],
+            'credit_utilization_pct': [30, 45, 75],
+            'recent_inquiries_3m': [2, 1, 5],
+            'active_loans_count': [1, 2, 3],
+            'avg_salary_6m': [50000, 75000, 35000],
+            'AMT_INCOME_TOTAL': [600000, 900000, 420000],
+            'net_cash_surplus_6m': [20000, 35000, 10000],
+            'salary_stability_flag': ['STABLE', 'MODERATE', 'UNSTABLE'],
+            'loan_amount': [180000, 250000, 100000],
+            'loan_tenure_months': [24, 36, 12],
+            'interest_rate': [10.5, 11.0, 12.0],
+            'existing_emi': [15000, 20000, 8000],
+            'AMT_ANNUITY': [8500, 9500, 4500]
+        }
+        template_df = pd.DataFrame(template_data)
+        st.dataframe(template_df, use_container_width=True)
+        csv_template = template_df.to_csv(index=False)
+        st.download_button("📥 Download CSV Template", data=csv_template,
+                           file_name="credit_assessment_template.csv", mime="text/csv", use_container_width=True)
 
 elif page == "📈 Model Info":
     st.markdown('<p class="main-header">Model Information</p>', unsafe_allow_html=True)
@@ -14110,3 +14267,7 @@ elif page == "ℹ️ About":
                 </div>
             </div>
         """, unsafe_allow_html=True)
+
+
+
+
