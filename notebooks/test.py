@@ -4104,8 +4104,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         st.metric("Interest Rate", interest_range)
     with col3:
         st.metric("Combined Risk Score", combined_risk_score)
+        
     with col4:
-        st.metric("Stage 2 Confidence", f"{stage2_confidence:.1f}%")
+        confidence_display = f"{stage2_confidence:.1f}%" if stage2_confidence is not None else "N/A"
+        st.metric("Stage 2 Confidence", confidence_display)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -4114,10 +4116,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     with tab1:
         st.markdown("### 📊 Decision Comparison")
         comparison_df = pd.DataFrame([
-            {'Stage': 'Stage 1 (Basic)', 'Decision': st.session_state.get('stage1_decision'),
-             'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A'},
-            {'Stage': 'Stage 2 (CIBIL Deep)', 'Decision': final_decision,
-             'Risk Score': combined_risk_score, 'Tier': f"{stage2_tier} | {interest_range}"}
+        {'Stage': 'Stage 1 (Basic)', 'Decision': st.session_state.get('stage1_decision'),
+        'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A'},
+        {'Stage': 'Stage 2 (CIBIL Deep)', 'Decision': final_decision,
+        'Risk Score': combined_risk_score, 'Tier': f"{stage2_tier} | {interest_range}"}
         ])
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
