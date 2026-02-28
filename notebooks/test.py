@@ -5045,18 +5045,92 @@ elif page == "🔬 Stage 2 Analysis":
                 if st.button("🔬 Extract & Analyze", key="extract_analyze_stage2", type="primary", use_container_width=True):
                     with st.spinner("🔄 Extracting data from PDF..."):
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
+                        
                     if extraction_result.get('success', False):
-                        st.success("✅ PDF extraction successful!")
-                        st.markdown("### 📋 Extracted CIBIL Data")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Credit Score", extraction_result.get('Credit_Score', 'N/A'))
-                            st.metric("Max Delinquency Level", extraction_result.get('max_delinquency_level', 0))
-                        with col2:
-                            st.metric("Times 30+ DPD", extraction_result.get('num_times_30p_dpd', 0))
-                            st.metric("Times 60+ DPD", extraction_result.get('num_times_60p_dpd', 0))
-                        with col3:
-                            st.metric("Total Delinquent", extraction_result.get('num_times_delinquent', 0))
+    st.success("✅ PDF extraction successful!")
+
+    # --- Display key metrics (summary) ---
+    st.markdown("### 📋 Extracted CIBIL Data (Summary)")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Credit Score", extraction_result.get('Credit_Score', 'N/A'))
+        st.metric("Max Delinquency Level", extraction_result.get('max_delinquency_level', 0))
+    with col2:
+        st.metric("Times 30+ DPD", extraction_result.get('num_times_30p_dpd', 0))
+        st.metric("Times 60+ DPD", extraction_result.get('num_times_60p_dpd', 0))
+    with col3:
+        st.metric("Total Delinquent", extraction_result.get('num_times_delinquent', 0))
+
+    # --- Show all extracted fields with names and IDs ---
+    with st.expander("🔍 View All Extracted Features (with internal IDs)"):
+        # Define a mapping for user-friendly names
+        friendly_names = {
+            'Credit_Score': 'Credit Score',
+            'AGE': 'Age',
+            'max_delinquency_level': 'Max Delinquency Level',
+            'num_times_30p_dpd': 'Times 30+ DPD',
+            'num_times_60p_dpd': 'Times 60+ DPD',
+            'num_times_delinquent': 'Total Delinquent',
+            'dpd_90_count_6m': 'DPD 90+ (Last 6M)',
+            'num_deliq_6mts': 'Delinquent Count (6M)',
+            'num_deliq_12mts': 'Delinquent Count (12M)',
+            'max_deliq_6mts': 'Max Delinquency (6M)',
+            'max_deliq_12mts': 'Max Delinquency (12M)',
+            'enq_L3m': 'Recent Inquiries (3M)',
+            'enq_L6m': 'Inquiries (6M)',
+            'enq_L12m': 'Inquiries (12M)',
+            'num_std': 'Active Loans',
+            'num_std_6mts': 'Standard Accounts (6M)',
+            'num_std_12mts': 'Standard Accounts (12M)',
+            'num_sub': 'Substandard Accounts',
+            'num_sub_6mts': 'Substandard (6M)',
+            'num_dbt': 'Doubtful Accounts',
+            'num_lss': 'Loss Accounts',
+            'CC_utilization': 'Credit Card Utilization',   # <-- single entry
+            'PL_utilization': 'Personal Loan Utilization',
+            'CC_Flag': 'Has Credit Card',
+            'PL_Flag': 'Has Personal Loan',
+            'HL_Flag': 'Has Home Loan',
+            'GL_Flag': 'Has Gold Loan',
+            'written_off_count': 'Written Off Count',
+            'settled_count': 'Settled Count',
+            'high_util_flag': 'High Utilization Flag',
+            'recent_deliq_flag': 'Recent Delinquency Flag',
+            'account_quality_score': 'Account Quality Score',
+            'Time_With_Curr_Empr': 'Employment Tenure (months)',
+            'NETMONTHLYINCOME': 'Net Monthly Income',
+            'pct_of_active_TLs_ever': '% Active TLs Ever',
+            'pct_currentBal_all_TL': '% Current Balance / All TL',
+            'max_unsec_exposure_inPct': 'Max Unsecured Exposure %',
+        }
+
+        # Collect all items from extraction_result, exclude non‑data keys
+        exclude_keys = {'success', 'error', 'raw_text', 'extraction_method'}
+        data_items = []
+        for key, value in extraction_result.items():
+            if key in exclude_keys:
+                continue
+            display_name = friendly_names.get(key, key.replace('_', ' ').title())
+            data_items.append({
+                "Feature Name": display_name,
+                "Internal ID": key,
+                "Value": value
+            })
+
+        # Sort by feature name
+        data_items.sort(key=lambda x: x["Feature Name"])
+        df_all = pd.DataFrame(data_items)
+
+        # Display as a dataframe
+        st.dataframe(
+            df_all,
+            column_config={
+                "Feature Name": "Feature Name",
+                "Internal ID": "Internal ID",
+                "Value": "Extracted Value"
+            },
+            hide_index=True,
+            width='stretch'      # replaces use_container_width=True)
 
                         enhanced_customer_data = stage1_customer.copy()
                         _s1_income = stage1_customer.get('avg_salary_6m', 50000)
