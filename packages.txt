@@ -1,8 +1,7 @@
+# System-level apt packages installed by Streamlit Cloud before Python deps.
+# These are REQUIRED for OCR (pytesseract + pdf2image) to work.
 tesseract-ocr
+tesseract-ocr-eng
 poppler-utils
 libgl1-mesa-glx
 libglib2.0-0
-libsm6
-libxext6
-libxrender-dev
-libgomp1
