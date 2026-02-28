@@ -2540,8 +2540,6 @@
 
 
 
-
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -2582,6 +2580,11 @@ import sys
 import os
 from pathlib import Path
 import re
+
+# =============================================================================
+# SUPPRESS SKLEARN FEATURE NAME WARNING
+# =============================================================================
+warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
 # =============================================================================
 # DYNAMIC PATH RESOLUTION – MAKE ALL PROJECT MODULES IMPORTABLE
@@ -3786,7 +3789,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         {'Stage': 'Stage 2 (CIBIL Deep)', 'Decision': final_decision,
         'Risk Score': combined_risk_score, 'Tier': f"{stage2_tier} | {interest_range}"}
         ])
-        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        st.dataframe(comparison_df, width='stretch', hide_index=True)
 
         st.markdown("### 🎯 Risk Tier Details")
         tier_info = {
@@ -4431,7 +4434,7 @@ elif page == "👤 Assessment":
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown('<p class="section-header">Policy Checks</p>', unsafe_allow_html=True)
             policy_df = pd.DataFrame([{'Check': k, 'Result': v} for k, v in decision_data.get('policy_checks', {}).items()])
-            st.dataframe(policy_df, use_container_width=True, hide_index=True)
+            st.dataframe(policy_df, width='stretch', hide_index=True)
 
             st.markdown('<p class="section-header">PD Calculation Breakdown</p>', unsafe_allow_html=True)
             pd_factors_display = {
@@ -4511,7 +4514,7 @@ elif page == "👤 Assessment":
                  "Impact": f"{ml_confidence_to_pd_adjustment(decision_data.get('confidence', 0), decision_data.get('decision', 'ERROR')):.1f}% adjustment"},
                 {"Factor": "Final PD", "Value": f"{decision_data.get('pd_percentage', 0)}%", "Impact": "Industry-standard calculation"}
             ])
-            st.dataframe(pd_table, use_container_width=True, hide_index=True)
+            st.dataframe(pd_table, width='stretch', hide_index=True)
 
 elif page == "🔬 Stage 2 Analysis":
     st.markdown('<p class="main-header">Stage 2: CIBIL Deep Dive</p>', unsafe_allow_html=True)
@@ -4873,7 +4876,7 @@ elif page == "📊 Batch Process":
             df = pd.read_csv(uploaded_file)
             st.success(f"✅ Successfully loaded {len(df)} records")
             with st.expander("📄 Preview Uploaded Data"):
-                st.dataframe(df.head(), use_container_width=True)
+                st.dataframe(df.head(), width='stretch')
                 st.write(f"**Total Records:** {len(df)}")
                 st.write(f"**Columns:** {', '.join(df.columns.tolist())}")
             required_cols = ['age', 'employment_type', 'avg_salary_6m', 'bureau_score', 'loan_amount']
@@ -4890,7 +4893,7 @@ elif page == "📊 Batch Process":
                         st.success(f"✅ Completed processing {len(results_df)} records!")
                         tab1, tab2, tab3 = st.tabs(["📊 Results", "📈 Analytics", "📥 Download"])
                         with tab1:
-                            st.dataframe(results_df, use_container_width=True)
+                            st.dataframe(results_df, width='stretch')
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
                                 st.metric("✅ Approved", len(results_df[results_df['decision'] == 'APPROVE']))
@@ -5005,7 +5008,7 @@ elif page == "📊 Batch Process":
             'AMT_ANNUITY': [8500, 9500, 4500]
         }
         template_df = pd.DataFrame(template_data)
-        st.dataframe(template_df, use_container_width=True)
+        st.dataframe(template_df, width='stretch')
         st.download_button(
             "📥 Download CSV Template",
             data=template_df.to_csv(index=False),
@@ -5026,7 +5029,7 @@ elif page == "📈 Model Info":
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<p class="section-header">Top Features</p>', unsafe_allow_html=True)
     feature_df = pd.DataFrame({'Rank': range(1, min(21, len(TOP_FEATURES) + 1)), 'Feature': TOP_FEATURES[:20]})
-    st.dataframe(feature_df, use_container_width=True, hide_index=True)
+    st.dataframe(feature_df, width='stretch', hide_index=True)
 
 elif page == "ℹ️ About":
     st.markdown('<p class="main-header">About</p>', unsafe_allow_html=True)
@@ -5077,4 +5080,4 @@ elif page == "ℹ️ About":
                     </ul>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True) 
