@@ -10,6 +10,16 @@ Date: January 2026
 VERSION: 8.2 - COMPLETELY FIXED PD CALCULATION & AUDIT PDF
 """
 
+
+"""
+Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
+Enhanced with Modern UI/UX Design
+Run with: streamlit run test.py (from inside the notebooks folder)
+Author: Zen Meraki
+Date: January 2026
+VERSION: 8.3 - FULLY CORRECTED
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -27,16 +37,88 @@ import sys
 import os
 from pathlib import Path
 import pytesseract
-
-import css_styles
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import re
+import cv2
+from PIL import Image
+from pdf2image import convert_from_bytes
 
 # =============================================================================
-# IMPORT CSS – ONLY EXTERNAL IMPORT
+# DYNAMIC PATH RESOLUTION – MAKE ALL PROJECT MODULES IMPORTABLE
 # =============================================================================
-from css_styles import CSS
+CURRENT_DIR = Path(__file__).resolve().parent          # notebooks/
+PROJECT_ROOT = CURRENT_DIR.parent                      # credit_risk_engine/
+POSSIBLE_LOCATIONS = [
+    CURRENT_DIR,                           # notebooks/
+    PROJECT_ROOT,                           # credit_risk_engine/
+    PROJECT_ROOT / "loan",                   # credit_risk_engine/loan/
+    PROJECT_ROOT / "utils",                   # credit_risk_engine/utils/
+    PROJECT_ROOT / "notebooks",               # credit_risk_engine/notebooks/
+]
 
-warnings.filterwarnings('ignore')
+for loc in POSSIBLE_LOCATIONS:
+    if loc.exists() and str(loc) not in sys.path:
+        sys.path.insert(0, str(loc))
+
+# =============================================================================
+# IMPORT CSS – WITH FALLBACK
+# =============================================================================
+try:
+    from css_styles import CSS
+except ImportError:
+    # Fallback minimal CSS to avoid crashing
+    CSS = """
+    <style>
+        .main-header { font-size: 2rem; font-weight: bold; color: #2d3748; }
+        .section-header { font-size: 1.5rem; font-weight: 600; color: #2d3748; }
+        .info-box { background: #f7fafc; padding: 1rem; border-radius: 0.5rem; }
+        .decision-card { padding: 2rem; border-radius: 1rem; text-align: center; margin-bottom: 1rem; }
+        .decision-card-approved { background: #c6f6d5; border-left: 5px solid #48bb78; }
+        .decision-card-rejected { background: #fed7d7; border-left: 5px solid #f56565; }
+        .decision-card-review { background: #feebc8; border-left: 5px solid #ed8936; }
+        .decision-title { font-size: 2.5rem; font-weight: bold; }
+        .decision-subtitle { font-size: 1rem; opacity: 0.8; }
+        .stat-card { background: white; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+        .stat-number { font-size: 1.8rem; font-weight: bold; color: #2d3748; }
+        .stat-label { font-size: 0.875rem; color: #718096; }
+        .info-card { background: white; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .info-card-title { font-weight: 600; margin-bottom: 0.5rem; color: #2d3748; }
+        .info-card-content { font-size: 0.875rem; }
+        .data-row { display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid #e2e8f0; }
+        .data-label { color: #4a5568; }
+        .data-value { font-weight: 500; }
+        .status-badge { padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem; }
+        .badge-pass { background: #c6f6d5; color: #22543d; }
+        .badge-fail { background: #fed7d7; color: #742a2a; }
+        .badge-warning { background: #feebc8; color: #744210; }
+        .reason-item { padding: 0.25rem 0; }
+        .reason-icon { color: #587042; font-weight: bold; margin-right: 0.5rem; }
+    </style>
+    """
+
+# =============================================================================
+# IMPORT BUSINESS LOGIC MODULES – WITH HELPFUL ERROR IF MISSING
+# =============================================================================
+try:
+    from affordability_engine import calculate_emi, calculate_affordability
+    from reason_codes import generate_reason_codes
+    from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
+except ImportError as e:
+    st.error(f"❌ Failed to import required modules: {e}")
+    st.info("""
+    Please ensure the following files are placed in one of these directories:
+    - `notebooks/` (same folder as test.py)
+    - `loan/` (sibling of notebooks)
+    - `utils/` (containing pdf_generator.py and __init__.py)
+    - The project root (`credit_risk_engine/`)
+    
+    Required files:
+    - affordability_engine.py
+    - reason_codes.py
+    - risk_engine.py
+    - utils/__init__.py
+    - utils/pdf_generator.py
+    """)
+    st.stop()
 
 # =============================================================================
 # STAGE 2 ENGINE – ROBUST FALLBACK
@@ -44,31 +126,17 @@ warnings.filterwarnings('ignore')
 try:
     import stage2_engine
     from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
-    STAGE2_AVAILABLE = True
-        
+    STAGE2_AVAILABLE = is_stage2_available()  # Use the function, not a direct attribute
 except ImportError:
     stage2_engine = None
     STAGE2_AVAILABLE = False
+    # Define dummy functions so the rest of the code doesn't crash
     def make_two_stage_decision(*args, **kwargs):
         raise NotImplementedError("Stage 2 engine not available")
-            
     def is_stage2_available():
         return False
     def get_stage2_status():
         return {"error": "Stage 2 engine module not found", "available": False}
-
-# =============================================================================
-# OCR IMPORTS FOR CIBIL PDF EXTRACTION
-# =============================================================================
-try:
-    import pytesseract
-    from pdf2image import convert_from_bytes
-    import cv2
-    from PIL import Image
-    import re
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
 
 # =============================================================================
 # PDF GENERATION – SAFE FALLBACK
@@ -79,9 +147,13 @@ generate_audit_pdf = None
 try:
     from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
     PDF_AVAILABLE = True
-except ImportError as e:
-    PDF_AVAILABLE = False
-    pass
+except ImportError:
+    pass   # Already set to False
+
+# =============================================================================
+# OCR AVAILABILITY – WILL BE CHECKED INSIDE EXTRACTION FUNCTION
+# =============================================================================
+OCR_AVAILABLE = True   # Assume installed; errors caught later
 
 # =============================================================================
 # JSON SANITIZER
@@ -113,7 +185,6 @@ def sanitize_for_json(obj: Any) -> Any:
 # SESSION STATE INITIALIZATION
 # =============================================================================
 def init_session_state():
-    """Initialize all session state variables"""
     if 'stage1_complete' not in st.session_state:
         st.session_state.stage1_complete = False
     if 'stage1_decision' not in st.session_state:
@@ -130,9 +201,8 @@ def init_session_state():
         st.session_state.stage2_selected_tab = "Manual Entry"
 
 # =============================================================================
-# PAGE CONFIGURATION
+# PAGE CONFIGURATION – MUST BE FIRST STREAMLIT COMMAND
 # =============================================================================
-
 st.set_page_config(
     page_title="Credit Risk Assessment",
     page_icon="💳",
@@ -141,7 +211,7 @@ st.set_page_config(
 )
 
 st.markdown(CSS, unsafe_allow_html=True)
-init_session_state()  
+init_session_state()
 
 # =============================================================================
 # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
@@ -186,6 +256,183 @@ MODEL = ASSETS['model']
 TOP_FEATURES = ASSETS['features']
 LE_MAP = ASSETS['le_map']
 TARGET_LE = ASSETS['target_le']
+
+# import streamlit as st
+# import pandas as pd
+# import numpy as np
+# import plotly.graph_objects as go
+# import plotly.express as px
+# import joblib
+# import warnings
+# from datetime import datetime
+# import hashlib
+# import io
+# import base64
+# from typing import Dict, List, Any, Union
+# import json
+# import sys
+# import os
+# from pathlib import Path
+# import pytesseract
+
+# import css_styles
+# sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# # =============================================================================
+# # IMPORT CSS – ONLY EXTERNAL IMPORT
+# # =============================================================================
+# from css_styles import CSS
+
+# warnings.filterwarnings('ignore')
+
+# # =============================================================================
+# # STAGE 2 ENGINE – ROBUST FALLBACK
+# # =============================================================================
+# try:
+#     import stage2_engine
+#     from stage2_engine import make_two_stage_decision, is_stage2_available, get_stage2_status
+#     STAGE2_AVAILABLE = True
+        
+# except ImportError:
+#     stage2_engine = None
+#     STAGE2_AVAILABLE = False
+#     def make_two_stage_decision(*args, **kwargs):
+#         raise NotImplementedError("Stage 2 engine not available")
+            
+#     def is_stage2_available():
+#         return False
+#     def get_stage2_status():
+#         return {"error": "Stage 2 engine module not found", "available": False}
+
+# # =============================================================================
+# # OCR IMPORTS FOR CIBIL PDF EXTRACTION
+# # =============================================================================
+# try:
+#     import pytesseract
+#     from pdf2image import convert_from_bytes
+#     import cv2
+#     from PIL import Image
+#     import re
+#     OCR_AVAILABLE = True
+# except ImportError:
+#     OCR_AVAILABLE = False
+
+# # =============================================================================
+# # PDF GENERATION – SAFE FALLBACK
+# # =============================================================================
+# PDF_AVAILABLE = False
+# generate_decision_pdf = None
+# generate_audit_pdf = None
+# try:
+#     from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
+#     PDF_AVAILABLE = True
+# except ImportError as e:
+#     PDF_AVAILABLE = False
+#     pass
+
+# # =============================================================================
+# # JSON SANITIZER
+# # =============================================================================
+# def sanitize_for_json(obj: Any) -> Any:
+#     if obj is None or isinstance(obj, (str, int, float, bool)):
+#         return obj
+#     if isinstance(obj, set):
+#         return list(obj)
+#     if isinstance(obj, datetime):
+#         return obj.isoformat()
+#     if isinstance(obj, np.integer):
+#         return int(obj)
+#     if isinstance(obj, np.floating):
+#         return float(obj)
+#     if isinstance(obj, np.ndarray):
+#         return obj.tolist()
+#     if isinstance(obj, dict):
+#         return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+#     if isinstance(obj, (list, tuple)):
+#         return [sanitize_for_json(item) for item in obj]
+#     try:
+#         json.dumps(obj)
+#         return obj
+#     except (TypeError, ValueError):
+#         return str(obj)
+
+# # =============================================================================
+# # SESSION STATE INITIALIZATION
+# # =============================================================================
+# def init_session_state():
+#     """Initialize all session state variables"""
+#     if 'stage1_complete' not in st.session_state:
+#         st.session_state.stage1_complete = False
+#     if 'stage1_decision' not in st.session_state:
+#         st.session_state.stage1_decision = None
+#     if 'stage1_data' not in st.session_state:
+#         st.session_state.stage1_data = None
+#     if 'current_customer_data' not in st.session_state:
+#         st.session_state.current_customer_data = None
+#     if 'page_navigation' not in st.session_state:
+#         st.session_state.page_navigation = "🏠 Home"
+#     if 'use_two_stage' not in st.session_state:
+#         st.session_state.use_two_stage = False
+#     if 'stage2_selected_tab' not in st.session_state:
+#         st.session_state.stage2_selected_tab = "Manual Entry"
+
+# # =============================================================================
+# # PAGE CONFIGURATION
+# # =============================================================================
+
+# st.set_page_config(
+#     page_title="Credit Risk Assessment",
+#     page_icon="💳",
+#     layout="wide",
+#     initial_sidebar_state="expanded"
+# )
+
+# st.markdown(CSS, unsafe_allow_html=True)
+# init_session_state()  
+
+# # =============================================================================
+# # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
+# # =============================================================================
+# @st.cache_resource
+# def load_model_assets():
+#     try:
+#         possible_paths = [
+#             'credit_risk_assets.pkl',
+#             'notebooks/credit_risk_assets.pkl',
+#             '../notebooks/credit_risk_assets.pkl'
+#         ]
+#         assets = None
+#         for path in possible_paths:
+#             try:
+#                 assets = joblib.load(path)
+#                 break
+#             except FileNotFoundError:
+#                 continue
+#         if assets is None:
+#             raise FileNotFoundError("Could not find credit_risk_assets.pkl")
+#         return {
+#             'model': assets['model'],
+#             'features': assets['features'],
+#             'le_map': assets['le_map'],
+#             'target_le': assets['target_le'],
+#             'loaded': True,
+#             'error': None
+#         }
+#     except FileNotFoundError:
+#         return {'loaded': False, 'error': 'credit_risk_assets.pkl not found. Please run the training script first.'}
+#     except Exception as e:
+#         return {'loaded': False, 'error': f'Error loading model: {str(e)}'}
+
+# ASSETS = load_model_assets()
+# if not ASSETS['loaded']:
+#     st.error(f"❌ {ASSETS['error']}")
+#     st.info("Please ensure 'credit_risk_assets.pkl' is in the same directory as this app.")
+#     st.stop()
+
+# MODEL = ASSETS['model']
+# TOP_FEATURES = ASSETS['features']
+# LE_MAP = ASSETS['le_map']
+# TARGET_LE = ASSETS['target_le']
 
 
 
