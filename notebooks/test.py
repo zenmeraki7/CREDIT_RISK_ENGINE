@@ -2874,6 +2874,7 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -2929,7 +2930,6 @@ try:
     from PIL import Image
     OCR_AVAILABLE = True
 except ImportError:
-    # OCR libraries not installed – feature will be disabled
     pass
 
 # =============================================================================
@@ -2938,7 +2938,6 @@ except ImportError:
 try:
     from css_styles import CSS
 except ImportError:
-    # Fallback minimal CSS to avoid crashing
     CSS = """
     <style>
         .main-header { font-size: 2rem; font-weight: bold; color: #2d3748; }
@@ -3398,19 +3397,13 @@ def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_co
 # RISK SCORE CALCULATION
 # =============================================================================
 def calculate_final_risk_score(bureau_score, ml_confidence, foir,
-                                dpd_90, dpd_30, net_surplus, 
-                                bounces, missing_months, active_loans):
-    # Component 1: Bureau (0-400)
+                                dpd_90, dpd_30, net_surplus,
+                                bounces=0, missing_months=0, active_loans=0):
     bureau_points = (bureau_score / 900) * 400
-    # Component 2: ML Model (0-300)
     ml_points = (ml_confidence / 100) * 300
-    # Component 3: FOIR (0-150)
     foir_points = max(0, (1 - foir / 50) * 150)
-    # Component 4: Delinquency Penalty (up to -150)
     dpd_penalty = min((dpd_90 * 50) + (dpd_30 * 20), 150)
-    # Component 5: Behavioral Penalty (up to -100)
     behavioral_penalty = min((bounces * 10) + (missing_months * 10), 100)
-    # Component 6: Cash Surplus Bonus/Penalty
     if net_surplus > 50000:
         surplus_points = 50
     elif net_surplus > 0:
@@ -3419,7 +3412,7 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir,
         surplus_points = -50
     else:
         surplus_points = -20
-    total = (bureau_points + ml_points + foir_points 
+    total = (bureau_points + ml_points + foir_points
              + surplus_points - dpd_penalty - behavioral_penalty)
     return max(0, min(int(total), 1000))
 
@@ -3427,7 +3420,6 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir,
 # CIBIL PDF EXTRACTION ENGINE (OCR + PATTERN MATCHING) – OPTIONAL
 # =============================================================================
 def extract_cibil_from_pdf(uploaded_file):
-    """Extract CIBIL data using OCR – relies on system PATH."""
     if not OCR_AVAILABLE:
         return {'success': False, 'error': 'OCR libraries not installed. Please install pytesseract, opencv-python, pdf2image, and poppler.'}
 
@@ -3440,7 +3432,6 @@ def extract_cibil_from_pdf(uploaded_file):
             _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             full_text += pytesseract.image_to_string(binary) + "\n"
 
-        # ----- 1. Credit Score -----
         credit_score = 720
         score_match = re.search(
             r'\b(\d{3})\s*(?:EXCELLENT|VERY\s*GOOD|GOOD|FAIR|SUBPRIME|POOR|NH|NA)\b',
@@ -3469,7 +3460,6 @@ def extract_cibil_from_pdf(uploaded_file):
                 if 300 <= val <= 900:
                     credit_score = val
 
-        # ----- 2. Monthly Income -----
         monthly_income = 50000
         income_match = re.search(
             r'(?:net\s+monthly\s+income|monthly\s+income|net\s+income|salary)[^\n\r]{0,30}?'
@@ -3490,7 +3480,6 @@ def extract_cibil_from_pdf(uploaded_file):
                 if 5000 <= val <= 1000000:
                     monthly_income = val
 
-        # ----- 3. CC Utilization -----
         cc_util_pct = 35
         util_match = re.search(
             r'utilization\s*[\(:\-]?\s*(\d{1,3})\s*%',
@@ -3501,7 +3490,6 @@ def extract_cibil_from_pdf(uploaded_file):
         cc_util = cc_util_pct / 100.0
         high_util = 1 if cc_util_pct > 75 else 0
 
-        # ----- 4. Age from Date of Birth -----
         age_extracted = 35
         dob_match = re.search(
             r'(?:date\s+of\s+birth|dob)[:\s]+(\d{2}[-/]\w{3,9}[-/]\d{2,4})',
@@ -3521,13 +3509,11 @@ def extract_cibil_from_pdf(uploaded_file):
             except:
                 pass
 
-        # ----- 5. Business Vintage -----
         biz_vintage = 3
         biz_match = re.search(r'business\s+vintage.*?(\d+)', full_text, re.IGNORECASE)
         if biz_match:
             biz_vintage = int(biz_match.group(1))
 
-        # ----- 6. Parse the ACCOUNT DETAILS table -----
         lines = full_text.split('\n')
         in_accounts = False
         in_enquiry = False
@@ -3569,7 +3555,6 @@ def extract_cibil_from_pdf(uploaded_file):
                 if enq_date:
                     enquiry_dates.append(enq_date.group(1))
 
-        # ----- 7. Derive counts from parsed accounts -----
         written_off_count = 0
         settled_count = 0
         dpd_90_count = 0
@@ -3775,7 +3760,6 @@ def make_hybrid_decision_enhanced(customer_dict):
     else:
         policy_checks['inquiries'] = f"✅ {recent_inquiries} inquiries"
 
-    # ML Prediction
     input_df = pd.DataFrame([customer_dict])
     for col in TOP_FEATURES:
         if col not in input_df.columns:
@@ -3801,7 +3785,6 @@ def make_hybrid_decision_enhanced(customer_dict):
         confidence = 75.0
         class_probs = {ml_decision: 100.0}
 
-    # Affordability
     loan_amount = customer_dict.get('loan_amount', 0)
     loan_tenure = customer_dict.get('loan_tenure_months', 12)
     interest_rate = customer_dict.get('interest_rate', 10.5)
@@ -5058,9 +5041,6 @@ elif page == "🔬 Stage 2 Analysis":
                             with col3:
                                 st.metric("Total Delinquent", extraction_result.get('num_times_delinquent', 0))
 
-                            # ... (rest of the extraction display code – same as before)
-                            # For brevity, assume it continues as in the original.
-
                             enhanced_customer_data = stage1_customer.copy()
                             _s1_income = stage1_customer.get('avg_salary_6m', 50000)
                             _s2_income = extraction_result.get('NETMONTHLYINCOME', 0)
@@ -5115,14 +5095,13 @@ elif page == "🔬 Stage 2 Analysis":
                                 except Exception as e:
                                     st.error(f"❌ Analysis failed: {str(e)}")
                         else:
-                            st.error("❌ PDF extraction failed! Error: " + extraction_result.get('error'))
+                            st.error("❌ PDF extraction failed! Error: " + extraction_result.get('error', 'Unknown'))
 
     elif selected_tab == "Batch Analysis":
         st.markdown('<p class="section-header">📊 Batch CIBIL Analysis</p>', unsafe_allow_html=True)
         st.info("📊 Batch analysis feature coming soon!")
 
 elif page == "📊 Batch Process":
-    # (Full batch processing code – unchanged)
     st.markdown('<p class="main-header">Batch Processing</p>', unsafe_allow_html=True)
     st.markdown("""
         <div class="info-box">
@@ -5193,40 +5172,55 @@ elif page == "📊 Batch Process":
                             col1, col2 = st.columns(2)
                             with col1:
                                 csv = results_df.to_csv(index=False)
-                                st.download_button("📥 Download as CSV", data=csv,
-                                                   file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-
-
-                                                   mime="text/csv", use_container_width=True)
+                                st.download_button(
+                                    "📥 Download as CSV",
+                                    data=csv,
+                                    file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv",
+                                    use_container_width=True
+                                )
                             with col2:
                                 json_data = results_df.to_json(orient='records', indent=2)
-                                st.download_button("📥 Download as JSON", data=json_data,
-                                                   file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                                   mime="application/json", use_container_width=True)
+                                st.download_button(
+                                    "📥 Download as JSON",
+                                    data=json_data,
+                                    file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                    mime="application/json",
+                                    use_container_width=True
+                                )
                             st.markdown("---")
                             st.markdown("#### Filtered Downloads")
                             col1, col2, col3 = st.columns(3)
                             with col1:
                                 approved_df = results_df[results_df['decision'] == 'APPROVE']
                                 if len(approved_df) > 0:
-                                    st.download_button(f"✅ Approved Only ({len(approved_df)})",
-                                                       data=approved_df.to_csv(index=False),
-                                                       file_name=f"approved_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                       mime="text/csv", use_container_width=True)
+                                    st.download_button(
+                                        f"✅ Approved Only ({len(approved_df)})",
+                                        data=approved_df.to_csv(index=False),
+                                        file_name=f"approved_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        use_container_width=True
+                                    )
                             with col2:
                                 rejected_df = results_df[results_df['decision'] == 'REJECT']
                                 if len(rejected_df) > 0:
-                                    st.download_button(f"❌ Rejected Only ({len(rejected_df)})",
-                                                       data=rejected_df.to_csv(index=False),
-                                                       file_name=f"rejected_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                       mime="text/csv", use_container_width=True)
+                                    st.download_button(
+                                        f"❌ Rejected Only ({len(rejected_df)})",
+                                        data=rejected_df.to_csv(index=False),
+                                        file_name=f"rejected_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        use_container_width=True
+                                    )
                             with col3:
                                 review_df = results_df[results_df['decision'] == 'REVIEW']
                                 if len(review_df) > 0:
-                                    st.download_button(f"⚠️ Review Only ({len(review_df)})",
-                                                       data=review_df.to_csv(index=False),
-                                                       file_name=f"review_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                       mime="text/csv", use_container_width=True)
+                                    st.download_button(
+                                        f"⚠️ Review Only ({len(review_df)})",
+                                        data=review_df.to_csv(index=False),
+                                        file_name=f"review_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        use_container_width=True
+                                    )
         except Exception as e:
             st.error(f"❌ Error processing file: {str(e)}")
             st.info("Please ensure the CSV file is properly formatted and contains the required columns.")
