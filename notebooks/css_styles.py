@@ -8,27 +8,27 @@ CSS = """
 /* ========== CSS VARIABLES ========== */
 :root {
     /* New palette */
-    --navy-dark: #00002A;           /* deep navy for primary text/buttons */
-    --navy-mid: #1A3F75;             /* medium blue for accents/hover */
-    --teal-light: #44E6A9;            /* soft teal for highlights */
-    --mint-light: #44EA4C;             /* fresh mint for success states */
+    --navy-deep: #00002A;           /* deep navy – primary text, headers */
+    --navy-mid: #1A3F75;             /* medium blue – secondary, hover */
+    --teal-light: #44E6A9;           /* soft teal – accent, highlights */
+    --mint-fresh: #44EA4C;            /* fresh mint – success states */
 
     /* Neutrals */
     --bg-main: #FFFFFF;                /* pure white background */
     --card-bg: #FFFFFF;                 /* white cards */
-    --text-primary: #1E293B;            /* dark slate for headings */
-    --text-secondary: #475569;           /* soft grey for labels */
-    --border-subtle: #E2E8F0;            /* light border */
-    --light-blue-bg: #F0F8FF;            /* very light blue for subtle backgrounds */
+    --text-primary: #1E293B;            /* dark slate (kept for softer text) */
+    --text-secondary: #64748B;           /* softer grey for labels */
+    --border-soft: #E2E8F0;              /* very light border */
+    --light-bg: #F8FAFC;                  /* very light blue-grey for subtle backgrounds */
 
-    /* Shadows */
-    --shadow-sm: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1);
-    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+    /* Shadows – very subtle */
+    --shadow-sm: 0 2px 4px rgba(0,0,0,0.02);
+    --shadow-md: 0 4px 8px rgba(0,0,0,0.03);
+    --shadow-lg: 0 8px 16px rgba(0,0,0,0.04);
+    --shadow-xl: 0 12px 24px rgba(0,0,0,0.05);
 
     /* Status colors */
-    --success: var(--mint-light);
+    --success: var(--mint-fresh);
     --warning: #F59E0B;
     --danger: #EF4444;
     --info: var(--teal-light);
@@ -52,6 +52,7 @@ CSS = """
 body {
     background-color: var(--bg-main);
     color: var(--text-primary);
+    line-height: 1.5;
 }
 
 .main {
@@ -65,11 +66,11 @@ body {
     padding: 0 var(--space-lg);
 }
 
-/* ========== HEADERS ========== */
+/* ========== TYPOGRAPHY ========== */
 .main-header {
     font-size: 2.8rem;
     font-weight: 700;
-    color: var(--navy-dark);
+    color: var(--navy-deep);
     text-align: center;
     margin: var(--space-xl) 0 var(--space-lg);
     letter-spacing: -0.02em;
@@ -88,23 +89,23 @@ body {
 .section-header {
     font-size: 1.8rem;
     font-weight: 600;
-    color: var(--navy-dark);
+    color: var(--navy-deep);
     margin: var(--space-lg) 0 var(--space-md);
     padding-bottom: var(--space-xs);
     border-bottom: 2px solid var(--teal-light);
 }
 
-/* ========== CARD BASE ========== */
-.card, .info-card, .stat-card {
+/* ========== CARDS ========== */
+.card, .info-card {
     background: var(--card-bg);
     border-radius: 24px;
     padding: var(--space-lg);
-    border: 1px solid var(--border-subtle);
-    box-shadow: var(--shadow-sm);
-    transition: all 0.2s ease;
-}
-.card:hover, .info-card:hover, .stat-card:hover {
     box-shadow: var(--shadow-md);
+    transition: all 0.2s ease;
+    border: 1px solid var(--border-soft);
+}
+.card:hover, .info-card:hover {
+    box-shadow: var(--shadow-lg);
     transform: translateY(-2px);
     border-color: var(--teal-light);
 }
@@ -112,9 +113,9 @@ body {
 .info-card-title {
     font-size: 1.2rem;
     font-weight: 600;
-    color: var(--navy-dark);
+    color: var(--navy-deep);
     margin-bottom: var(--space-sm);
-    border-bottom: 2px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-soft);
     padding-bottom: var(--space-xs);
     display: flex;
     align-items: center;
@@ -129,16 +130,25 @@ body {
     line-height: 1.6;
 }
 
-/* ========== STAT CARDS (for metric displays) ========== */
+/* ========== STAT CARDS (for metric displays like RF, FEATURES, CLASSES) ========== */
 .stat-card {
-    text-align: center;
+    background: var(--card-bg);
+    border-radius: 24px;
     padding: var(--space-lg);
-    background: linear-gradient(145deg, #ffffff, var(--light-blue-bg));
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-soft);
+    transition: all 0.2s ease;
+}
+.stat-card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--teal-light);
+    transform: scale(1.02);
 }
 .stat-number {
     font-size: 2.8rem;
     font-weight: 700;
-    color: var(--navy-dark);
+    color: var(--navy-deep);
     line-height: 1.2;
     display: block;
     margin-bottom: var(--space-xs);
@@ -157,21 +167,20 @@ body {
     padding: var(--space-xl);
     color: white;
     text-align: center;
-    background: linear-gradient(135deg, var(--navy-dark), var(--navy-mid));
+    background: linear-gradient(135deg, var(--navy-deep), var(--navy-mid));
     box-shadow: var(--shadow-xl);
     margin: var(--space-lg) 0;
-    border: 1px solid rgba(255,255,255,0.1);
 }
 .decision-card-approved {
-    background: linear-gradient(135deg, var(--mint-light), var(--teal-light));
-    color: var(--navy-dark);
+    background: linear-gradient(135deg, var(--mint-fresh), var(--teal-light));
+    color: var(--navy-deep);
 }
 .decision-card-rejected {
     background: linear-gradient(135deg, var(--danger), #B91C1C);
 }
 .decision-card-review {
     background: linear-gradient(135deg, var(--warning), #B45309);
-    color: var(--navy-dark);
+    color: white;
 }
 
 .decision-title {
@@ -193,17 +202,17 @@ body {
     display: inline-flex;
     align-items: center;
     padding: 0.5rem 1.2rem;
-    border-radius: 50px;
+    border-radius: 40px;
     font-weight: 600;
     font-size: 0.85rem;
     gap: 0.5rem;
     box-shadow: var(--shadow-sm);
-    border: 2px solid transparent;
+    border: 1px solid transparent;
 }
 .badge-pass {
-    background: rgba(68, 234, 76, 0.15);
+    background: rgba(68, 234, 76, 0.1);
     color: #2B6E2B;
-    border-color: var(--mint-light);
+    border-color: var(--mint-fresh);
 }
 .badge-fail {
     background: #FEE2E2;
@@ -222,12 +231,12 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: var(--space-sm) 0;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-soft);
     transition: background 0.2s;
     border-radius: 8px;
 }
 .data-row:hover {
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
     padding-left: var(--space-sm);
     padding-right: var(--space-sm);
 }
@@ -245,7 +254,7 @@ body {
 
 /* ========== REASON ITEMS ========== */
 .reason-item {
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
     border-left: 5px solid var(--teal-light);
     padding: var(--space-md);
     border-radius: 16px;
@@ -273,7 +282,7 @@ body {
     padding: var(--space-md);
     margin: var(--space-md) 0;
     border-left: 5px solid;
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
     box-shadow: var(--shadow-sm);
 }
 .info-box {
@@ -300,7 +309,7 @@ body {
 }
 
 .stButton > button {
-    background: var(--navy-dark) !important;
+    background: var(--navy-deep) !important;
     color: white !important;
 }
 .stButton > button:hover {
@@ -311,11 +320,11 @@ body {
 
 .stDownloadButton button {
     background: white !important;
-    color: var(--navy-dark) !important;
-    border: 1px solid var(--border-subtle) !important;
+    color: var(--navy-deep) !important;
+    border: 1px solid var(--border-soft) !important;
 }
 .stDownloadButton button:hover {
-    background: var(--light-blue-bg) !important;
+    background: var(--light-bg) !important;
     transform: translateY(-2px) !important;
     box-shadow: var(--shadow-md) !important;
     border-color: var(--teal-light) !important;
@@ -328,7 +337,7 @@ body {
     padding: 0.5rem;
     gap: 0.5rem;
     box-shadow: var(--shadow-sm);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-soft);
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 40px !important;
@@ -338,20 +347,20 @@ body {
     transition: all 0.2s;
 }
 .stTabs [aria-selected="true"] {
-    background: var(--navy-dark) !important;
+    background: var(--navy-deep) !important;
     color: white !important;
     box-shadow: var(--shadow-md) !important;
 }
 .stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
-    background: var(--light-blue-bg);
-    color: var(--navy-dark);
+    background: var(--light-bg);
+    color: var(--navy-deep);
 }
 
 /* ========== METRICS (Streamlit's built-in metric) ========== */
 [data-testid="stMetricValue"] {
     font-size: 2.5rem !important;
     font-weight: 700 !important;
-    color: var(--navy-dark) !important;
+    color: var(--navy-deep) !important;
 }
 [data-testid="stMetricLabel"] {
     font-size: 0.9rem !important;
@@ -366,8 +375,8 @@ body {
 
 /* ========== INPUT FIELDS ========== */
 .stNumberInput input, .stSelectbox select, .stTextInput input, .stDateInput input {
-    border: 2px solid var(--border-subtle) !important;
-    border-radius: 14px !important;
+    border: 2px solid var(--border-soft) !important;
+    border-radius: 16px !important;
     padding: 0.75rem 1rem !important;
     background: white !important;
     color: var(--text-primary) !important;
@@ -376,7 +385,7 @@ body {
 }
 .stNumberInput input:focus, .stSelectbox select:focus, .stTextInput input:focus, .stDateInput input:focus {
     border-color: var(--teal-light) !important;
-    box-shadow: 0 0 0 3px rgba(68, 230, 169, 0.2) !important;
+    box-shadow: 0 0 0 4px rgba(68, 230, 169, 0.1) !important;
     outline: none !important;
 }
 
@@ -403,43 +412,43 @@ body {
     border-radius: 20px;
     overflow: hidden;
     box-shadow: var(--shadow-sm);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-soft);
 }
 .dataframe th {
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
     font-weight: 600;
-    color: var(--navy-dark);
+    color: var(--navy-deep);
     padding: var(--space-sm);
     text-align: left;
     border-bottom: 2px solid var(--teal-light);
 }
 .dataframe td {
     padding: var(--space-sm);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-soft);
     color: var(--text-secondary);
 }
 .dataframe tr:last-child td {
     border-bottom: none;
 }
 .dataframe tr:hover {
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
 }
 
 /* ========== PROGRESS BAR ========== */
 .stProgress > div > div > div {
-    background: linear-gradient(90deg, var(--teal-light), var(--mint-light)) !important;
+    background: linear-gradient(90deg, var(--teal-light), var(--mint-fresh)) !important;
     border-radius: 20px !important;
-    box-shadow: 0 2px 4px rgba(68, 230, 169, 0.3) !important;
+    box-shadow: 0 2px 4px rgba(68, 230, 169, 0.2) !important;
 }
 
 /* ========== EXPANDER ========== */
 .streamlit-expanderHeader {
     background: white !important;
-    border: 1px solid var(--border-subtle) !important;
-    border-radius: 14px !important;
+    border: 1px solid var(--border-soft) !important;
+    border-radius: 16px !important;
     padding: 0.75rem 1rem !important;
     font-weight: 600 !important;
-    color: var(--navy-dark) !important;
+    color: var(--navy-deep) !important;
     transition: all 0.2s !important;
 }
 .streamlit-expanderHeader:hover {
@@ -450,25 +459,25 @@ body {
 /* ========== SIDEBAR ========== */
 [data-testid="stSidebar"] {
     background: white;
-    border-right: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border-soft);
     box-shadow: 2px 0 10px rgba(0,0,0,0.02);
 }
 [data-testid="stSidebar"] .block-container {
     padding: var(--space-lg) var(--space-md);
 }
 [data-testid="stSidebar"] .sidebar-content {
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
     border-radius: 16px;
     padding: var(--space-sm);
 }
 
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
 }
 ::-webkit-scrollbar-track {
-    background: var(--light-blue-bg);
+    background: var(--light-bg);
 }
 ::-webkit-scrollbar-thumb {
     background: var(--teal-light);
@@ -499,7 +508,7 @@ hr {
 }
 ::selection {
     background: var(--teal-light);
-    color: var(--navy-dark);
+    color: var(--navy-deep);
 }
 </style>
 """
