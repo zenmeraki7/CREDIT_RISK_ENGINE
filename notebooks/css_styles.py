@@ -5,38 +5,64 @@ CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-    /* New palette with added warm accent */
-    --navy-dark: #262842;        /* primary dark */
-    --navy-mid: #293961;          /* secondary dark */
-    --blue-deep: #2C497F;         /* deep blue */
-    --blue-soft: #8897BD;         /* soft blue/grey */
-    --lavender-light: #E3E4FA;    /* light background */
-    --accent-warm: #F6C531;        /* warm gold (keep from original) */
+    /* Primary palette – pastel version */
+    --fern-green: #6C7A89;        /* muted slate blue (primary dark) */
+    --sage: #C1D5C0;               /* soft sage green */
+    --cosmic-latte: #FFF9E6;       /* light cream */
+    --jasmine: #FFDAB9;             /* soft peach */
+    --saffron: #FFF5BA;             /* pastel yellow (accent) */
 
-    /* Derived colours */
-    --primary-bg: #FFFFFF;
-    --card-bg: rgba(227, 228, 250, 0.6);  /* lavender with transparency */
-    --text-primary: #262842;
-    --text-secondary: #4B5563;
-    --border-light: rgba(38, 40, 66, 0.1);
-    --shadow-color: rgba(38, 40, 66, 0.1);
+    /* Derived shades */
+    --dark-fern: #4A5A6A;           /* darker slate */
+    --light-sage: #E0ECDE;          /* very light sage */
+    --fern-dark: #4A5A6A;           /* alias for dark-fern */
+    --fern-light: #8A9BA8;          /* lighter slate */
+    --sage-light: #E0ECDE;
+    --sage-dark: #A2B5A0;           /* muted green-grey */
+    --gold: #FFE5B4;                 /* soft peach/gold */
+    --gold-light: #FFF0DB;           /* very light peach */
 
-    /* Semantic status (unchanged) */
-    --success: #10B981;
-    --warning: #F59E0B;
-    --danger: #EF4444;
-    --info: #3B82F6;
+    /* Greys – kept neutral but can be softened */
+    --white: #FFFFFF;
+    --off-white: #FAFAFA;
+    --gray-50: #F9FAFB;
+    --gray-100: #F3F4F6;
+    --gray-200: #E5E7EB;
+    --gray-300: #D1D5DB;
+    --gray-400: #9CA3AF;
+    --gray-500: #6B7280;
+    --gray-600: #4B5563;
+    --gray-700: #374151;
+    --gray-800: #1F2937;
+    --gray-900: #111827;
 
-    /* Shadows - subtle */
-    --shadow-sm: 0 2px 8px var(--shadow-color);
-    --shadow-md: 0 4px 12px var(--shadow-color);
-    --shadow-lg: 0 8px 24px var(--shadow-color);
-    --shadow-xl: 0 16px 32px rgba(38, 40, 66, 0.15);
+    /* Semantic status – keep original or adapt to pastel */
+    --success: #A8E6CF;             /* soft mint green */
+    --success-light: #D1FAE5;
+    --warning: #FFD3B6;              /* soft apricot */
+    --warning-light: #FEF3C7;
+    --danger: #FFB7B2;               /* soft coral */
+    --danger-light: #FEE2E2;
+    --info: #B5EAD7;                  /* soft seafoam */
+    --info-light: #DBEAFE;
 
-    /* Transitions */
-    --transition: all 0.2s ease;
+    /* Shadows – use the primary colour with low opacity */
+    --shadow-sm: 0 1px 2px 0 rgba(108, 122, 137, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(108, 122, 137, 0.1), 0 2px 4px -1px rgba(108, 122, 137, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(108, 122, 137, 0.15), 0 4px 6px -2px rgba(108, 122, 137, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(108, 122, 137, 0.2), 0 10px 10px -5px rgba(108, 122, 137, 0.04);
+    --shadow-2xl: 0 25px 50px -12px rgba(108, 122, 137, 0.25);
+
+    /* Glass effects */
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(108, 122, 137, 0.15);
+
+    /* Transitions – unchanged */
+    --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
-
 /* ==================== GLOBAL ==================== */
 * { font-family: 'Inter', sans-serif; }
 
