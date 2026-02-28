@@ -2875,6 +2875,7 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -2885,6 +2886,20 @@ VERSION: 8.3 - FULLY CORRECTED
 """
 
 import streamlit as st
+
+# =============================================================================
+# PAGE CONFIGURATION – MUST BE THE VERY FIRST STREAMLIT COMMAND
+# =============================================================================
+st.set_page_config(
+    page_title="Credit Risk Assessment",
+    page_icon="💳",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# =============================================================================
+# STANDARD LIBRARY / THIRD-PARTY IMPORTS
+# =============================================================================
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -2967,6 +2982,30 @@ except ImportError:
     </style>
     """
 
+# Apply CSS immediately after set_page_config
+st.markdown(CSS, unsafe_allow_html=True)
+
+# =============================================================================
+# SESSION STATE INITIALIZATION
+# =============================================================================
+def init_session_state():
+    if 'stage1_complete' not in st.session_state:
+        st.session_state.stage1_complete = False
+    if 'stage1_decision' not in st.session_state:
+        st.session_state.stage1_decision = None
+    if 'stage1_data' not in st.session_state:
+        st.session_state.stage1_data = None
+    if 'current_customer_data' not in st.session_state:
+        st.session_state.current_customer_data = None
+    if 'page_navigation' not in st.session_state:
+        st.session_state.page_navigation = "🏠 Home"
+    if 'use_two_stage' not in st.session_state:
+        st.session_state.use_two_stage = False
+    if 'stage2_selected_tab' not in st.session_state:
+        st.session_state.stage2_selected_tab = "Manual Entry"
+
+init_session_state()
+
 # =============================================================================
 # IMPORT BUSINESS LOGIC MODULES – WITH HELPFUL ERROR IF MISSING
 # =============================================================================
@@ -2982,7 +3021,7 @@ except ImportError as e:
     - `loan/` (sibling of notebooks)
     - `utils/` (containing pdf_generator.py and __init__.py)
     - The project root (`credit_risk_engine/`)
-    
+
     Required files:
     - affordability_engine.py
     - reason_codes.py
@@ -3046,38 +3085,6 @@ def sanitize_for_json(obj: Any) -> Any:
         return obj
     except (TypeError, ValueError):
         return str(obj)
-
-# =============================================================================
-# SESSION STATE INITIALIZATION
-# =============================================================================
-def init_session_state():
-    if 'stage1_complete' not in st.session_state:
-        st.session_state.stage1_complete = False
-    if 'stage1_decision' not in st.session_state:
-        st.session_state.stage1_decision = None
-    if 'stage1_data' not in st.session_state:
-        st.session_state.stage1_data = None
-    if 'current_customer_data' not in st.session_state:
-        st.session_state.current_customer_data = None
-    if 'page_navigation' not in st.session_state:
-        st.session_state.page_navigation = "🏠 Home"
-    if 'use_two_stage' not in st.session_state:
-        st.session_state.use_two_stage = False
-    if 'stage2_selected_tab' not in st.session_state:
-        st.session_state.stage2_selected_tab = "Manual Entry"
-
-# =============================================================================
-# PAGE CONFIGURATION – MUST BE FIRST STREAMLIT COMMAND
-# =============================================================================
-st.set_page_config(
-    page_title="Credit Risk Assessment",
-    page_icon="💳",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-st.markdown(CSS, unsafe_allow_html=True)
-init_session_state()
 
 # =============================================================================
 # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
@@ -3241,7 +3248,7 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
         for check_name, check_result in policy_checks.items():
             if '❌' in str(check_result):
                 cn = check_name.lower()
-                if   'bureau' in cn:
+                if 'bureau' in cn:
                     reasons.append(REJECTION_REASONS['low_bureau'].format(score=bureau_score))
                 elif 'dpd' in cn:
                     reasons.append(REJECTION_REASONS['severe_dpd'].format(dpd=dpd_90))
@@ -3380,8 +3387,8 @@ def ml_confidence_to_pd_adjustment(ml_confidence, ml_decision):
         return 5.0
 
 def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_count=0,
-                      employment_type='Salaried', employment_tenure=24, business_vintage=0,
-                      recent_inquiries=2, ml_decision='APPROVE'):
+                       employment_type='Salaried', employment_tenure=24, business_vintage=0,
+                       recent_inquiries=2, ml_decision='APPROVE'):
     base_pd = bureau_score_to_pd(bureau_score)
     foir_adj = foir_to_pd_adjustment(foir)
     deliq_multiplier = delinquency_to_pd_multiplier(dpd_90_count, dpd_30_count)
@@ -3451,10 +3458,7 @@ def extract_cibil_from_pdf(uploaded_file):
                 if 300 <= val <= 900:
                     credit_score = val
         if credit_score == 720:
-            score_match3 = re.search(
-                r'score.*?\((\d{3})\)',
-                full_text, re.IGNORECASE
-            )
+            score_match3 = re.search(r'score.*?\((\d{3})\)', full_text, re.IGNORECASE)
             if score_match3:
                 val = int(score_match3.group(1))
                 if 300 <= val <= 900:
@@ -3471,20 +3475,14 @@ def extract_cibil_from_pdf(uploaded_file):
             if val > 1000:
                 monthly_income = val
         if monthly_income == 50000:
-            income_match2 = re.search(
-                r'(?:rs\.?\s*|₹\s*)([\d,]{4,})',
-                full_text, re.IGNORECASE
-            )
+            income_match2 = re.search(r'(?:rs\.?\s*|₹\s*)([\d,]{4,})', full_text, re.IGNORECASE)
             if income_match2:
                 val = int(income_match2.group(1).replace(',', ''))
                 if 5000 <= val <= 1000000:
                     monthly_income = val
 
         cc_util_pct = 35
-        util_match = re.search(
-            r'utilization\s*[\(:\-]?\s*(\d{1,3})\s*%',
-            full_text, re.IGNORECASE
-        )
+        util_match = re.search(r'utilization\s*[\(:\-]?\s*(\d{1,3})\s*%', full_text, re.IGNORECASE)
         if util_match:
             cc_util_pct = int(util_match.group(1))
         cc_util = cc_util_pct / 100.0
@@ -3504,9 +3502,9 @@ def extract_cibil_from_pdf(uploaded_file):
                         dob = _dt.strptime(dob_str, fmt)
                         age_extracted = int((datetime.now() - dob).days / 365.25)
                         break
-                    except:
+                    except Exception:
                         continue
-            except:
+            except Exception:
                 pass
 
         biz_vintage = 3
@@ -3600,8 +3598,7 @@ def extract_cibil_from_pdf(uploaded_file):
                 active_count = int(summary_match.group(2))
             else:
                 inline = re.search(
-                    r'(?:Total\s+Accounts.*?Active.*?Closed.*?\n|'
-                    r'(\d+)\s+(\d+)\s+(\d+)\s+[\d,]+\s+\d+)',
+                    r'(?:Total\s+Accounts.*?Active.*?Closed.*?\n|(\d+)\s+(\d+)\s+(\d+)\s+[\d,]+\s+\d+)',
                     full_text, re.IGNORECASE
                 )
                 if inline and inline.group(2):
@@ -3735,6 +3732,7 @@ def make_hybrid_decision_enhanced(customer_dict):
         policy_checks['tenure'] = f"✅ Tenure {employment_tenure} months"
     else:
         policy_checks['tenure'] = f"✅ Business Vintage {business_vintage} years"
+
     bureau_score = customer_dict.get('bureau_score', 0)
     dpd_90 = customer_dict.get('dpd_90_count_6m', 0)
     credit_utilization = customer_dict.get('credit_utilization_pct', 0)
@@ -3781,7 +3779,7 @@ def make_hybrid_decision_enhanced(customer_dict):
         pred_proba = MODEL.predict_proba(final_input)[0]
         confidence = max(pred_proba) * 100
         class_probs = {cls: prob * 100 for cls, prob in zip(TARGET_LE.classes_, pred_proba)}
-    except:
+    except Exception:
         confidence = 75.0
         class_probs = {ml_decision: 100.0}
 
@@ -3793,7 +3791,6 @@ def make_hybrid_decision_enhanced(customer_dict):
     foir = affordability_data['foir_percentage']
     if ml_decision == "APPROVE" and foir > 50:
         ml_decision = "REVIEW"
-
     if dependents_flag_review and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
 
@@ -3952,10 +3949,7 @@ def render_decision_header(decision_data, customer_data):
         subtitle = "Requires Manual Review"
     st.markdown(f"""
         <div class="{card_class}">
-            <div class="decision-title">
-                <span>{icon}</span>
-                <span>{decision}</span>
-            </div>
+            <div class="decision-title"><span>{icon}</span><span>{decision}</span></div>
             <div class="decision-subtitle">{subtitle}</div>
         </div>
     """, unsafe_allow_html=True)
@@ -3998,19 +3992,27 @@ def render_reason_codes(reasons):
     st.markdown('</div></div>', unsafe_allow_html=True)
 
 def create_modern_gauge(value, title, max_value=100):
-    if value <= 50: color = "#f56565"
-    elif value <= 75: color = "#ed8936"
-    else: color = "#48bb78"
+    if value <= 50:
+        color = "#f56565"
+    elif value <= 75:
+        color = "#ed8936"
+    else:
+        color = "#48bb78"
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
         title={'text': title, 'font': {'size': 18, 'color': '#2d3748', 'family': 'Inter'}},
         number={'suffix': "%", 'font': {'size': 36, 'color': '#2d3748', 'family': 'Inter'}},
-        gauge={'axis': {'range': [0, max_value], 'tickfont': {'size': 12, 'color': '#718096'}},
-               'bar': {'color': color, 'thickness': 0.75}, 'bgcolor': 'white', 'borderwidth': 0,
-               'steps': [{'range': [0, 50], 'color': '#fed7d7'},
-                         {'range': [50, 75], 'color': '#feebc8'},
-                         {'range': [75, 100], 'color': '#c6f6d5'}]}
+        gauge={
+            'axis': {'range': [0, max_value], 'tickfont': {'size': 12, 'color': '#718096'}},
+            'bar': {'color': color, 'thickness': 0.75},
+            'bgcolor': 'white', 'borderwidth': 0,
+            'steps': [
+                {'range': [0, 50], 'color': '#fed7d7'},
+                {'range': [50, 75], 'color': '#feebc8'},
+                {'range': [75, 100], 'color': '#c6f6d5'}
+            ]
+        }
     ))
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='white',
                       font={'family': 'Inter', 'color': '#2d3748'})
@@ -4022,11 +4024,13 @@ def create_modern_bar_chart(class_probs):
     fig = px.bar(df, x='Decision', y='Probability', title='Decision Probabilities', color='Decision',
                  color_discrete_map=colors, text='Probability')
     fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside', marker_line_width=0)
-    fig.update_layout(showlegend=False, yaxis_title='Probability (%)', xaxis_title='', height=300,
-                      margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='white', plot_bgcolor='white',
-                      font={'family': 'Inter', 'color': '#2d3748'},
-                      yaxis={'gridcolor': '#e2e8f0', 'range': [0, max(class_probs.values()) * 1.2]},
-                      xaxis={'tickfont': {'size': 14, 'color': '#2d3748'}})
+    fig.update_layout(
+        showlegend=False, yaxis_title='Probability (%)', xaxis_title='', height=300,
+        margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='white', plot_bgcolor='white',
+        font={'family': 'Inter', 'color': '#2d3748'},
+        yaxis={'gridcolor': '#e2e8f0', 'range': [0, max(class_probs.values()) * 1.2]},
+        xaxis={'tickfont': {'size': 14, 'color': '#2d3748'}}
+    )
     return fig
 
 # =============================================================================
@@ -4057,10 +4061,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
 
     st.markdown(f"""
         <div class="{card_class}">
-            <div class="decision-title">
-                <span>{icon}</span>
-                <span>{final_decision}</span>
-            </div>
+            <div class="decision-title"><span>{icon}</span><span>{final_decision}</span></div>
             <div class="decision-subtitle">{subtitle}</div>
         </div>
     """, unsafe_allow_html=True)
@@ -4082,18 +4083,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     with tab1:
         st.markdown("### 📊 Decision Comparison")
         comparison_df = pd.DataFrame([
-            {
-                'Stage': 'Stage 1 (Basic)',
-                'Decision': st.session_state.get('stage1_decision'),
-                'Risk Score': stage1_data.get('risk_score', 'N/A'),
-                'Tier': 'N/A'
-            },
-            {
-                'Stage': 'Stage 2 (CIBIL Deep)',
-                'Decision': final_decision,
-                'Risk Score': combined_risk_score,
-                'Tier': f"{stage2_tier} | {interest_range}"
-            }
+            {'Stage': 'Stage 1 (Basic)', 'Decision': st.session_state.get('stage1_decision'),
+             'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A'},
+            {'Stage': 'Stage 2 (CIBIL Deep)', 'Decision': final_decision,
+             'Risk Score': combined_risk_score, 'Tier': f"{stage2_tier} | {interest_range}"}
         ])
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
@@ -4113,7 +4106,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                     <p style="margin: 0;">{tier_data['desc']}</p>
                 </div>
             """, unsafe_allow_html=True)
-
         st.markdown("### 📝 Decision Reasoning")
         st.info(stage2_result.get('reason', 'N/A'))
 
@@ -4123,8 +4115,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         with col1:
             st.markdown("**Tier Probabilities**")
             if 'tier_probabilities' in stage2_result:
-                tier_probs = stage2_result['tier_probabilities']
-                for tier, prob in tier_probs.items():
+                for tier, prob in stage2_result['tier_probabilities'].items():
                     st.metric(tier, f"{prob:.1f}%")
         with col2:
             st.markdown("**Stage Scores**")
@@ -4146,7 +4137,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
 
     with tab4:
         st.markdown("### 📥 Download Reports")
-        stage1_reasons = stage1_customer.get('reason_codes', [])
         bureau_score = stage1_customer.get('bureau_score', 0)
         dpd_90 = stage1_customer.get('dpd_90_count_6m', 0)
         dpd_30 = stage1_customer.get('dpd_30_count_6m', 0)
@@ -4156,19 +4146,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         business_vintage = stage1_customer.get('business_vintage_years', 0)
         ml_decision = stage1_data.get('decision', 'ERROR')
         confidence = stage1_data.get('confidence', 0)
-
-        pd_factors = {
-            'bureau_score': bureau_score,
-            'base_pd': bureau_score_to_pd(bureau_score),
-            'dpd_90': dpd_90,
-            'dpd_30': dpd_30,
-            'delinquency_multiplier': delinquency_to_pd_multiplier(dpd_90, dpd_30),
-            'foir': foir,
-            'foir_adjustment': foir_to_pd_adjustment(foir),
-            'employment_adjustment': employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage),
-            'ml_adjustment': ml_confidence_to_pd_adjustment(confidence, ml_decision),
-            'final_pd': stage1_data.get('pd_percentage', 0)
-        }
 
         report_data = {
             'application_id': stage1_customer.get('application_id'),
@@ -4180,8 +4157,18 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             'policy_checks': stage1_data.get('policy_checks', {}),
             'affordability_data': stage1_data.get('affordability_data', {}),
             'customer_data': stage1_customer,
-            'reason_codes': stage1_reasons,
-            'pd_calculation_factors': pd_factors,
+            'reason_codes': stage1_customer.get('reason_codes', []),
+            'pd_calculation_factors': {
+                'bureau_score': bureau_score,
+                'base_pd': bureau_score_to_pd(bureau_score),
+                'dpd_90': dpd_90, 'dpd_30': dpd_30,
+                'delinquency_multiplier': delinquency_to_pd_multiplier(dpd_90, dpd_30),
+                'foir': foir,
+                'foir_adjustment': foir_to_pd_adjustment(foir),
+                'employment_adjustment': employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage),
+                'ml_adjustment': ml_confidence_to_pd_adjustment(confidence, ml_decision),
+                'final_pd': stage1_data.get('pd_percentage', 0)
+            },
             'stage2_final_decision': final_decision,
             'stage2_tier': stage2_tier,
             'stage2_interest_range': interest_range,
@@ -4238,7 +4225,7 @@ with st.sidebar:
     navigation_options = ["🏠 Home", "👤 Assessment", "📊 Batch Process", "📈 Model Info", "ℹ️ About"]
 
     if (st.session_state.stage1_complete and
-        st.session_state.stage1_decision in ['APPROVE', 'REVIEW']):
+            st.session_state.stage1_decision in ['APPROVE', 'REVIEW']):
         navigation_options.insert(2, "🔬 Stage 2 Analysis")
         st.success(f"✅ Stage 1: {st.session_state.stage1_decision}")
         st.info("🔬 Stage 2 Analysis unlocked!")
@@ -4359,13 +4346,13 @@ elif page == "👤 Assessment":
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("DPD 30+ Count",  ex.get('num_times_30p_dpd', 0))
             c2.metric("Inquiries (3M)", ex.get('enq_L3m', 0))
-            c3.metric("Active Accounts",ex.get('num_std', 0))
+            c3.metric("Active Accounts", ex.get('num_std', 0))
             c4.metric("Written-Off",    ex.get('written_off_count', 0))
             if ex.get('written_off_count', 0) > 0 or ex.get('settled_count', 0) > 0:
                 st.warning(f"⚠️ Severe negatives detected: "
-                           f"{ex.get('written_off_count',0)} written-off, "
-                           f"{ex.get('settled_count',0)} settled accounts. "
-                           f"Score overridden to {ex.get('Credit_Score','?')}.")
+                           f"{ex.get('written_off_count', 0)} written-off, "
+                           f"{ex.get('settled_count', 0)} settled accounts. "
+                           f"Score overridden to {ex.get('Credit_Score', '?')}.")
             if st.toggle("📋 Show full extracted JSON"):
                 st.json({k: v for k, v in ex.items() if k != 'raw_text'})
             st.markdown("---")
@@ -4375,38 +4362,33 @@ elif page == "👤 Assessment":
                 st.rerun()
         else:
             st.markdown('<div class="info-box">💡 Complete the form below or upload a CIBIL PDF to auto‑fill bureau data.</div>', unsafe_allow_html=True)
-            uploaded_pdf = st.file_uploader(
-                "Upload CIBIL Report (PDF)",
-                type=['pdf'],
-                key="assessment_pdf"
-            )
+            uploaded_pdf = st.file_uploader("Upload CIBIL Report (PDF)", type=['pdf'], key="assessment_pdf")
             if uploaded_pdf is not None:
                 st.info(f"📄 File ready: **{uploaded_pdf.name}** ({uploaded_pdf.size/1024:.1f} KB)")
-                if st.button("🔍 Extract & Auto-fill Form", key="extract_assessment", type="primary",
-                             use_container_width=True):
+                if st.button("🔍 Extract & Auto-fill Form", key="extract_assessment", type="primary", use_container_width=True):
                     with st.spinner("🔄 Running OCR on CIBIL PDF — this takes 10-30 seconds..."):
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                     if extraction_result.get('success', False):
-                        st.session_state.pdf_age              = int(extraction_result.get('AGE', 35))
-                        st.session_state.pdf_employment_type  = 'Salaried'
-                        st.session_state.pdf_kyc              = True
-                        st.session_state.pdf_bankruptcy       = False
-                        st.session_state.pdf_fraud            = False
-                        st.session_state.pdf_bureau_score     = int(extraction_result.get('Credit_Score', 720))
-                        st.session_state.pdf_dpd_90           = int(extraction_result.get('dpd_90_count_6m', 0))
-                        st.session_state.pdf_dpd_30           = int(extraction_result.get('num_times_30p_dpd', 0))
-                        st.session_state.pdf_credit_util      = int(float(extraction_result.get('CC_utilization', 0.35)) * 100)
-                        st.session_state.pdf_inquiries        = int(extraction_result.get('enq_L3m', 2))
-                        st.session_state.pdf_active_loans     = int(extraction_result.get('num_std', 1))
-                        st.session_state.pdf_existing_emi     = int(extraction_result.get('existing_emi', 15000))
-                        st.session_state.pdf_monthly_income   = int(extraction_result.get('NETMONTHLYINCOME', 50000))
-                        st.session_state.pdf_annual_income    = int(extraction_result.get('NETMONTHLYINCOME', 50000)) * 12
-                        st.session_state.pdf_net_surplus      = int(extraction_result.get('net_surplus', 20000))
-                        st.session_state.pdf_salary_stability = 'STABLE'
-                        st.session_state.pdf_loan_amount      = int(extraction_result.get('loan_amount', 180000))
-                        st.session_state.pdf_loan_tenure      = int(extraction_result.get('loan_tenure', 24))
-                        st.session_state.pdf_interest_rate    = float(extraction_result.get('interest_rate', 10.5))
-                        st.session_state.pdf_amt_annuity      = int(extraction_result.get('amt_annuity', 8500))
+                        st.session_state.pdf_age               = int(extraction_result.get('AGE', 35))
+                        st.session_state.pdf_employment_type   = 'Salaried'
+                        st.session_state.pdf_kyc               = True
+                        st.session_state.pdf_bankruptcy        = False
+                        st.session_state.pdf_fraud             = False
+                        st.session_state.pdf_bureau_score      = int(extraction_result.get('Credit_Score', 720))
+                        st.session_state.pdf_dpd_90            = int(extraction_result.get('dpd_90_count_6m', 0))
+                        st.session_state.pdf_dpd_30            = int(extraction_result.get('num_times_30p_dpd', 0))
+                        st.session_state.pdf_credit_util       = int(float(extraction_result.get('CC_utilization', 0.35)) * 100)
+                        st.session_state.pdf_inquiries         = int(extraction_result.get('enq_L3m', 2))
+                        st.session_state.pdf_active_loans      = int(extraction_result.get('num_std', 1))
+                        st.session_state.pdf_existing_emi      = int(extraction_result.get('existing_emi', 15000))
+                        st.session_state.pdf_monthly_income    = int(extraction_result.get('NETMONTHLYINCOME', 50000))
+                        st.session_state.pdf_annual_income     = int(extraction_result.get('NETMONTHLYINCOME', 50000)) * 12
+                        st.session_state.pdf_net_surplus       = int(extraction_result.get('net_surplus', 20000))
+                        st.session_state.pdf_salary_stability  = 'STABLE'
+                        st.session_state.pdf_loan_amount       = int(extraction_result.get('loan_amount', 180000))
+                        st.session_state.pdf_loan_tenure       = int(extraction_result.get('loan_tenure', 24))
+                        st.session_state.pdf_interest_rate     = float(extraction_result.get('interest_rate', 10.5))
+                        st.session_state.pdf_amt_annuity       = int(extraction_result.get('amt_annuity', 8500))
                         st.session_state.pdf_employment_tenure = int(extraction_result.get('Time_With_Curr_Empr', 24))
                         st.session_state.pdf_business_vintage  = int(extraction_result.get('business_vintage', 3))
                         st.session_state.pdf_dependents        = int(extraction_result.get('dependents', 2))
@@ -4440,19 +4422,16 @@ elif page == "👤 Assessment":
                 help="1-5: Approve eligible | >5: Review required"
             )
             kyc_verified = st.selectbox(
-                "KYC Verified",
-                ['Yes', 'No'],
+                "KYC Verified", ['Yes', 'No'],
                 index=0 if st.session_state.get('pdf_kyc', True) else 1
             ) == 'Yes'
         with col3:
             bankruptcy_flag = st.selectbox(
-                "Bankruptcy Flag",
-                ['No', 'Yes'],
+                "Bankruptcy Flag", ['No', 'Yes'],
                 index=0 if not st.session_state.get('pdf_bankruptcy', False) else 1
             ) == 'Yes'
             fraud_flag = st.selectbox(
-                "Fraud Flag",
-                ['No', 'Yes'],
+                "Fraud Flag", ['No', 'Yes'],
                 index=0 if not st.session_state.get('pdf_fraud', False) else 1
             ) == 'Yes'
             if employment_type == 'Salaried':
@@ -4621,9 +4600,7 @@ elif page == "👤 Assessment":
             col1, col2 = st.columns(2)
             with col1:
                 render_info_card("👤 Identity", "👤",
-                                 {"Age": age,
-                                  "Employment": employment_type,
-                                  "Dependents": dependents,
+                                 {"Age": age, "Employment": employment_type, "Dependents": dependents,
                                   "KYC Status": "Verified" if kyc_verified else "Not Verified",
                                   "Tenure": f"{employment_tenure} months" if employment_type == 'Salaried' else f"{business_vintage} years"})
                 render_info_card("💰 Financial", "💰",
@@ -4653,7 +4630,6 @@ elif page == "👤 Assessment":
                         <p style="margin: 0.5rem 0 0 0;">Choose an input method to proceed:</p>
                     </div>
                 """, unsafe_allow_html=True)
-
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     if st.button("📝 Manual Entry", key="stage2_manual_btn", use_container_width=True, type="primary"):
@@ -4688,31 +4664,30 @@ elif page == "👤 Assessment":
             col1, col2, col3 = st.columns(3)
             with col1:
                 render_info_card("Identity & Eligibility", "👤",
-                                {f"Age: {age}": "",
-                                 f"Employment: {employment_type}": "",
-                                 f"Dependents: {dependents}": "",
-                                 f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": ""},
-                                {f"Age: {age}": "pass" if 24 <= age <= 70 else "fail",
-                                 f"Employment: {employment_type}": "pass",
-                                 f"Dependents: {dependents}": "pass" if dependents <= 5 else "warning",
-                                 f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": "pass" if kyc_verified else "fail"})
+                                 {f"Age: {age}": "", f"Employment: {employment_type}": "",
+                                  f"Dependents: {dependents}": "",
+                                  f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": ""},
+                                 {f"Age: {age}": "pass" if 24 <= age <= 70 else "fail",
+                                  f"Employment: {employment_type}": "pass",
+                                  f"Dependents: {dependents}": "pass" if dependents <= 5 else "warning",
+                                  f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": "pass" if kyc_verified else "fail"})
             with col2:
                 bureau_pass = bureau_score >= 550
                 dpd_pass = dpd_90_6m == 0
                 render_info_card("Credit Bureau", "🏦",
-                                {f"Bureau Score: {bureau_score}": "", f"DPD 90+: {dpd_90_6m}": "",
-                                 f"Utilization: {credit_utilization}%": ""},
-                                {f"Bureau Score: {bureau_score}": "pass" if bureau_pass else "fail",
-                                 f"DPD 90+: {dpd_90_6m}": "pass" if dpd_pass else "fail",
-                                 f"Utilization: {credit_utilization}%": "pass" if credit_utilization <= 40 else "warning"})
+                                 {f"Bureau Score: {bureau_score}": "", f"DPD 90+: {dpd_90_6m}": "",
+                                  f"Utilization: {credit_utilization}%": ""},
+                                 {f"Bureau Score: {bureau_score}": "pass" if bureau_pass else "fail",
+                                  f"DPD 90+: {dpd_90_6m}": "pass" if dpd_pass else "fail",
+                                  f"Utilization: {credit_utilization}%": "pass" if credit_utilization <= 40 else "warning"})
             with col3:
                 render_info_card("Affordability", "💰",
-                                {f"Monthly Income: ₹{avg_salary:,}": "", f"FOIR: {foir:.1f}%": "",
-                                 f"Total EMI: ₹{total_emi:,}": "", f"Net Disposable: ₹{net_disp:,}": ""},
-                                {f"Monthly Income: ₹{avg_salary:,}": "pass",
-                                 f"FOIR: {foir:.1f}%": "pass" if foir <= 50 else "fail",
-                                 f"Total EMI: ₹{total_emi:,}": "pass",
-                                 f"Net Disposable: ₹{net_disp:,}": "pass" if net_disp >= 10000 else "warning"})
+                                 {f"Monthly Income: ₹{avg_salary:,}": "", f"FOIR: {foir:.1f}%": "",
+                                  f"Total EMI: ₹{total_emi:,}": "", f"Net Disposable: ₹{net_disp:,}": ""},
+                                 {f"Monthly Income: ₹{avg_salary:,}": "pass",
+                                  f"FOIR: {foir:.1f}%": "pass" if foir <= 50 else "fail",
+                                  f"Total EMI: ₹{total_emi:,}": "pass",
+                                  f"Net Disposable: ₹{net_disp:,}": "pass" if net_disp >= 10000 else "warning"})
 
             st.markdown("<br>", unsafe_allow_html=True)
             render_reason_codes(reasons)
@@ -4757,6 +4732,7 @@ elif page == "👤 Assessment":
             st.markdown('<p class="section-header">Policy Checks</p>', unsafe_allow_html=True)
             policy_df = pd.DataFrame([{'Check': k, 'Result': v} for k, v in decision_data.get('policy_checks', {}).items()])
             st.dataframe(policy_df, use_container_width=True, hide_index=True)
+
             st.markdown('<p class="section-header">PD Calculation Breakdown</p>', unsafe_allow_html=True)
             pd_factors_display = {
                 'Bureau Score': f"{bureau_score} → Base PD: {bureau_score_to_pd(bureau_score):.1f}%",
@@ -4827,8 +4803,12 @@ elif page == "👤 Assessment":
                 {"Factor": "Bureau Score", "Value": f"{bureau_score}", "Impact": f"{bureau_score_to_pd(bureau_score):.1f}% base PD"},
                 {"Factor": "Delinquency (DPD 90+)", "Value": f"{dpd_90_6m} times", "Impact": f"{delinquency_to_pd_multiplier(dpd_90_6m, dpd_30_6m):.1f}x multiplier"},
                 {"Factor": "FOIR", "Value": f"{foir:.1f}%", "Impact": f"{foir_to_pd_adjustment(foir):.1f}% adjustment"},
-                {"Factor": "Employment Stability", "Value": f"{employment_type} ({employment_tenure if employment_type == 'Salaried' else business_vintage}{' months' if employment_type == 'Salaried' else ' years'})", "Impact": f"{employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage):.1f}% adjustment"},
-                {"Factor": "ML Decision Confidence", "Value": f"{decision_data.get('confidence', 0):.1f}% ({decision_data.get('decision', 'ERROR')})", "Impact": f"{ml_confidence_to_pd_adjustment(decision_data.get('confidence', 0), decision_data.get('decision', 'ERROR')):.1f}% adjustment"},
+                {"Factor": "Employment Stability",
+                 "Value": f"{employment_type} ({employment_tenure if employment_type == 'Salaried' else business_vintage}{' months' if employment_type == 'Salaried' else ' years'})",
+                 "Impact": f"{employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage):.1f}% adjustment"},
+                {"Factor": "ML Decision Confidence",
+                 "Value": f"{decision_data.get('confidence', 0):.1f}% ({decision_data.get('decision', 'ERROR')})",
+                 "Impact": f"{ml_confidence_to_pd_adjustment(decision_data.get('confidence', 0), decision_data.get('decision', 'ERROR')):.1f}% adjustment"},
                 {"Factor": "Final PD", "Value": f"{decision_data.get('pd_percentage', 0)}%", "Impact": "Industry-standard calculation"}
             ])
             st.dataframe(pd_table, use_container_width=True, hide_index=True)
@@ -4902,11 +4882,11 @@ elif page == "🔬 Stage 2 Analysis":
             st.markdown("### 📋 Application Reference")
             col1, col2 = st.columns(2)
             with col1:
-                ref_app_id = st.text_input("Application ID", value=stage1_customer.get('application_id', 'N/A'), disabled=True)
-                stage1_decision_display = st.text_input("Stage 1 Decision", value=st.session_state.get('stage1_decision', 'N/A'), disabled=True)
+                st.text_input("Application ID", value=stage1_customer.get('application_id', 'N/A'), disabled=True)
+                st.text_input("Stage 1 Decision", value=st.session_state.get('stage1_decision', 'N/A'), disabled=True)
             with col2:
-                customer_name = st.text_input("Customer Name (Optional)", "")
-                stage1_risk_display = st.number_input("Stage 1 Risk Score", value=int(stage1_data.get('risk_score', 750)), disabled=True)
+                st.text_input("Customer Name (Optional)", "")
+                st.number_input("Stage 1 Risk Score", value=int(stage1_data.get('risk_score', 750)), disabled=True)
 
             st.markdown("---")
             st.markdown("### 🏦 CIBIL Bureau Data")
@@ -4949,8 +4929,10 @@ elif page == "🔬 Stage 2 Analysis":
             with col2:
                 st.markdown("**Demographics**")
                 age_cibil = st.number_input("Age", 24, 70, int(stage1_customer.get('age', 35)))
-                net_monthly_income = st.number_input("Net Monthly Income", 0, 1000000, int(stage1_customer.get('avg_salary_6m', 50000)), 5000)
-                time_curr_employer = st.number_input("Employment Tenure (months)", 0, 600, int(stage1_customer.get('employment_tenure_months', 24)))
+                net_monthly_income = st.number_input("Net Monthly Income", 0, 1000000,
+                                                      int(stage1_customer.get('avg_salary_6m', 50000)), 5000)
+                time_curr_employer = st.number_input("Employment Tenure (months)", 0, 600,
+                                                      int(stage1_customer.get('employment_tenure_months', 24)))
             with col3:
                 st.markdown("**Product Flags**")
                 cc_flag = st.selectbox("Credit Card", ["Yes", "No"]) == "Yes"
@@ -5028,74 +5010,74 @@ elif page == "🔬 Stage 2 Analysis":
                 if st.button("🔬 Extract & Analyze", key="extract_analyze_stage2", type="primary", use_container_width=True):
                     with st.spinner("🔄 Extracting data from PDF..."):
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
-                        if extraction_result.get('success', False):
-                            st.success("✅ PDF extraction successful!")
-                            st.markdown("### 📋 Extracted CIBIL Data")
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Credit Score", extraction_result.get('Credit_Score', 'N/A'))
-                                st.metric("Max Delinquency Level", extraction_result.get('max_delinquency_level', 0))
-                            with col2:
-                                st.metric("Times 30+ DPD", extraction_result.get('num_times_30p_dpd', 0))
-                                st.metric("Times 60+ DPD", extraction_result.get('num_times_60p_dpd', 0))
-                            with col3:
-                                st.metric("Total Delinquent", extraction_result.get('num_times_delinquent', 0))
+                    if extraction_result.get('success', False):
+                        st.success("✅ PDF extraction successful!")
+                        st.markdown("### 📋 Extracted CIBIL Data")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Credit Score", extraction_result.get('Credit_Score', 'N/A'))
+                            st.metric("Max Delinquency Level", extraction_result.get('max_delinquency_level', 0))
+                        with col2:
+                            st.metric("Times 30+ DPD", extraction_result.get('num_times_30p_dpd', 0))
+                            st.metric("Times 60+ DPD", extraction_result.get('num_times_60p_dpd', 0))
+                        with col3:
+                            st.metric("Total Delinquent", extraction_result.get('num_times_delinquent', 0))
 
-                            enhanced_customer_data = stage1_customer.copy()
-                            _s1_income = stage1_customer.get('avg_salary_6m', 50000)
-                            _s2_income = extraction_result.get('NETMONTHLYINCOME', 0)
-                            _use_income = _s1_income if (_s2_income > 0 and _s2_income < _s1_income * 0.4) else (_s2_income or _s1_income)
-                            if _s2_income > 0 and _s2_income < _s1_income * 0.4:
-                                st.warning(f'⚠️ CIBIL income ₹{_s2_income:,} is much lower than application income ₹{_s1_income:,}. Using application income for FOIR.')
+                        enhanced_customer_data = stage1_customer.copy()
+                        _s1_income = stage1_customer.get('avg_salary_6m', 50000)
+                        _s2_income = extraction_result.get('NETMONTHLYINCOME', 0)
+                        _use_income = _s1_income if (_s2_income > 0 and _s2_income < _s1_income * 0.4) else (_s2_income or _s1_income)
+                        if _s2_income > 0 and _s2_income < _s1_income * 0.4:
+                            st.warning(f'⚠️ CIBIL income ₹{_s2_income:,} is much lower than application income ₹{_s1_income:,}. Using application income for FOIR.')
 
-                            enhanced_customer_data.update({
-                                'bureau_score': extraction_result.get('Credit_Score', 720),
-                                'age': extraction_result.get('AGE', stage1_customer.get('age', 35)),
-                                'avg_salary_6m': _use_income,
-                                'employment_tenure_months': extraction_result.get('Time_With_Curr_Empr', stage1_customer.get('employment_tenure_months', 24)),
-                                'dpd_30_count_6m': extraction_result.get('num_times_30p_dpd', 0),
-                                'dpd_90_count_6m': extraction_result.get('dpd_90_count_6m', 0),
-                                'max_delinquency_level': extraction_result.get('max_delinquency_level', 0),
-                                'num_times_delinquent': extraction_result.get('num_times_delinquent', 0),
-                                'num_deliq_6mts': extraction_result.get('num_deliq_6mts', 0),
-                                'num_deliq_12mts': extraction_result.get('num_deliq_12mts', 0),
-                                'max_deliq_6mts': extraction_result.get('max_deliq_6mts', 0),
-                                'max_deliq_12mts': extraction_result.get('max_deliq_12mts', 0),
-                                'recent_inquiries_3m': extraction_result.get('enq_L3m', 2),
-                                'enq_L6m': extraction_result.get('enq_L6m', 4),
-                                'enq_L12m': extraction_result.get('enq_L12m', 6),
-                                'active_loans_count': extraction_result.get('num_std', 1),
-                                'num_std_6mts': extraction_result.get('num_std_6mts', 0),
-                                'num_std_12mts': extraction_result.get('num_std_12mts', 0),
-                                'num_sub': extraction_result.get('num_sub', 0),
-                                'num_sub_6mts': extraction_result.get('num_sub_6mts', 0),
-                                'num_dbt': extraction_result.get('num_dbt', 0),
-                                'num_lss': extraction_result.get('num_lss', 0),
-                                'credit_utilization_pct': (0 if extraction_result.get('CC_utilization', 0) < 0 else extraction_result.get('CC_utilization', 0.35)) * 100,
-                                'pct_of_active_TLs_ever': extraction_result.get('pct_of_active_TLs_ever', 0.6),
-                                'pct_currentBal_all_TL': extraction_result.get('pct_currentBal_all_TL', 0.3),
-                                'CC_utilization': 0 if extraction_result.get('CC_utilization', 0) < 0 else extraction_result.get('CC_utilization', 0.35),
-                                'PL_utilization': 0 if extraction_result.get('PL_utilization', 0) < 0 else extraction_result.get('PL_utilization', 0.25),
-                                'max_unsec_exposure_inPct': extraction_result.get('max_unsec_exposure_inPct', 30),
-                                'CC_Flag': extraction_result.get('CC_Flag', 0),
-                                'PL_Flag': extraction_result.get('PL_Flag', 0),
-                                'HL_Flag': extraction_result.get('HL_Flag', 0),
-                                'GL_Flag': extraction_result.get('GL_Flag', 0),
-                                'written_off_count': extraction_result.get('written_off_count', 0),
-                                'settled_count': extraction_result.get('settled_count', 0),
-                                'high_util_flag': extraction_result.get('high_util_flag', 0),
-                                'recent_deliq_flag': extraction_result.get('recent_deliq_flag', 0),
-                                'account_quality_score': extraction_result.get('account_quality_score', 0)
-                            })
+                        enhanced_customer_data.update({
+                            'bureau_score': extraction_result.get('Credit_Score', 720),
+                            'age': extraction_result.get('AGE', stage1_customer.get('age', 35)),
+                            'avg_salary_6m': _use_income,
+                            'employment_tenure_months': extraction_result.get('Time_With_Curr_Empr', stage1_customer.get('employment_tenure_months', 24)),
+                            'dpd_30_count_6m': extraction_result.get('num_times_30p_dpd', 0),
+                            'dpd_90_count_6m': extraction_result.get('dpd_90_count_6m', 0),
+                            'max_delinquency_level': extraction_result.get('max_delinquency_level', 0),
+                            'num_times_delinquent': extraction_result.get('num_times_delinquent', 0),
+                            'num_deliq_6mts': extraction_result.get('num_deliq_6mts', 0),
+                            'num_deliq_12mts': extraction_result.get('num_deliq_12mts', 0),
+                            'max_deliq_6mts': extraction_result.get('max_deliq_6mts', 0),
+                            'max_deliq_12mts': extraction_result.get('max_deliq_12mts', 0),
+                            'recent_inquiries_3m': extraction_result.get('enq_L3m', 2),
+                            'enq_L6m': extraction_result.get('enq_L6m', 4),
+                            'enq_L12m': extraction_result.get('enq_L12m', 6),
+                            'active_loans_count': extraction_result.get('num_std', 1),
+                            'num_std_6mts': extraction_result.get('num_std_6mts', 0),
+                            'num_std_12mts': extraction_result.get('num_std_12mts', 0),
+                            'num_sub': extraction_result.get('num_sub', 0),
+                            'num_sub_6mts': extraction_result.get('num_sub_6mts', 0),
+                            'num_dbt': extraction_result.get('num_dbt', 0),
+                            'num_lss': extraction_result.get('num_lss', 0),
+                            'credit_utilization_pct': (0 if extraction_result.get('CC_utilization', 0) < 0 else extraction_result.get('CC_utilization', 0.35)) * 100,
+                            'pct_of_active_TLs_ever': extraction_result.get('pct_of_active_TLs_ever', 0.6),
+                            'pct_currentBal_all_TL': extraction_result.get('pct_currentBal_all_TL', 0.3),
+                            'CC_utilization': 0 if extraction_result.get('CC_utilization', 0) < 0 else extraction_result.get('CC_utilization', 0.35),
+                            'PL_utilization': 0 if extraction_result.get('PL_utilization', 0) < 0 else extraction_result.get('PL_utilization', 0.25),
+                            'max_unsec_exposure_inPct': extraction_result.get('max_unsec_exposure_inPct', 30),
+                            'CC_Flag': extraction_result.get('CC_Flag', 0),
+                            'PL_Flag': extraction_result.get('PL_Flag', 0),
+                            'HL_Flag': extraction_result.get('HL_Flag', 0),
+                            'GL_Flag': extraction_result.get('GL_Flag', 0),
+                            'written_off_count': extraction_result.get('written_off_count', 0),
+                            'settled_count': extraction_result.get('settled_count', 0),
+                            'high_util_flag': extraction_result.get('high_util_flag', 0),
+                            'recent_deliq_flag': extraction_result.get('recent_deliq_flag', 0),
+                            'account_quality_score': extraction_result.get('account_quality_score', 0)
+                        })
 
-                            with st.spinner("🔬 Running Stage 2 analysis..."):
-                                try:
-                                    stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
-                                    display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data)
-                                except Exception as e:
-                                    st.error(f"❌ Analysis failed: {str(e)}")
-                        else:
-                            st.error("❌ PDF extraction failed! Error: " + extraction_result.get('error', 'Unknown'))
+                        with st.spinner("🔬 Running Stage 2 analysis..."):
+                            try:
+                                stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
+                                display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data)
+                            except Exception as e:
+                                st.error(f"❌ Analysis failed: {str(e)}")
+                    else:
+                        st.error("❌ PDF extraction failed! Error: " + extraction_result.get('error', 'Unknown'))
 
     elif selected_tab == "Batch Analysis":
         st.markdown('<p class="section-header">📊 Batch CIBIL Analysis</p>', unsafe_allow_html=True)
@@ -5135,17 +5117,13 @@ elif page == "📊 Batch Process":
                             st.dataframe(results_df, use_container_width=True)
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
-                                approved_count = len(results_df[results_df['decision'] == 'APPROVE'])
-                                st.metric("✅ Approved", approved_count)
+                                st.metric("✅ Approved", len(results_df[results_df['decision'] == 'APPROVE']))
                             with col2:
-                                rejected_count = len(results_df[results_df['decision'] == 'REJECT'])
-                                st.metric("❌ Rejected", rejected_count)
+                                st.metric("❌ Rejected", len(results_df[results_df['decision'] == 'REJECT']))
                             with col3:
-                                review_count = len(results_df[results_df['decision'] == 'REVIEW'])
-                                st.metric("⚠️ Review", review_count)
+                                st.metric("⚠️ Review", len(results_df[results_df['decision'] == 'REVIEW']))
                             with col4:
-                                avg_risk = results_df['risk_score'].mean()
-                                st.metric("📊 Avg Risk Score", f"{avg_risk:.0f}")
+                                st.metric("📊 Avg Risk Score", f"{results_df['risk_score'].mean():.0f}")
                         with tab2:
                             col1, col2 = st.columns(2)
                             with col1:
@@ -5171,19 +5149,17 @@ elif page == "📊 Batch Process":
                             st.markdown("### Download Results")
                             col1, col2 = st.columns(2)
                             with col1:
-                                csv = results_df.to_csv(index=False)
                                 st.download_button(
                                     "📥 Download as CSV",
-                                    data=csv,
+                                    data=results_df.to_csv(index=False),
                                     file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                     mime="text/csv",
                                     use_container_width=True
                                 )
                             with col2:
-                                json_data = results_df.to_json(orient='records', indent=2)
                                 st.download_button(
                                     "📥 Download as JSON",
-                                    data=json_data,
+                                    data=results_df.to_json(orient='records', indent=2),
                                     file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                     mime="application/json",
                                     use_container_width=True
@@ -5254,13 +5230,14 @@ elif page == "📊 Batch Process":
         }
         template_df = pd.DataFrame(template_data)
         st.dataframe(template_df, use_container_width=True)
-        csv_template = template_df.to_csv(index=False)
-        st.download_button("📥 Download CSV Template", data=csv_template,
-                           file_name="credit_assessment_template.csv", mime="text/csv", use_container_width=True)
+        st.download_button(
+            "📥 Download CSV Template",
+            data=template_df.to_csv(index=False),
+            file_name="credit_assessment_template.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
-# =============================================================================
-# MODEL INFO PAGE
-# =============================================================================
 elif page == "📈 Model Info":
     st.markdown('<p class="main-header">Model Information</p>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
@@ -5275,9 +5252,6 @@ elif page == "📈 Model Info":
     feature_df = pd.DataFrame({'Rank': range(1, min(21, len(TOP_FEATURES) + 1)), 'Feature': TOP_FEATURES[:20]})
     st.dataframe(feature_df, use_container_width=True, hide_index=True)
 
-# =============================================================================
-# ABOUT PAGE
-# =============================================================================
 elif page == "ℹ️ About":
     st.markdown('<p class="main-header">About</p>', unsafe_allow_html=True)
     st.markdown("""
