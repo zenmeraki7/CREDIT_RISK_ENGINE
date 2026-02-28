@@ -2876,6 +2876,7 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -2936,16 +2937,46 @@ for loc in POSSIBLE_LOCATIONS:
 
 # =============================================================================
 # OPTIONAL OCR DEPENDENCIES – GRACEFUL FALLBACK
+# Requires system packages (packages.txt):   tesseract-ocr  poppler-utils
+# Requires Python packages (requirements.txt): pytesseract pdf2image opencv-python-headless pillow
 # =============================================================================
 OCR_AVAILABLE = False
+OCR_ERROR_MSG = ""
 try:
     import pytesseract
     from pdf2image import convert_from_bytes
     import cv2
     from PIL import Image
+
+    # Auto-detect Tesseract binary (Streamlit Cloud / Linux / Mac / Windows)
+    import shutil as _shutil
+    _tess_cmd = (
+        _shutil.which("tesseract")
+        or r"C:\Program Files\Tesseract-OCR\tesseract.exe"   # Windows fallback
+    )
+    if _tess_cmd:
+        pytesseract.pytesseract.tesseract_cmd = _tess_cmd
+
+    # Verify tesseract binary is actually callable
+    pytesseract.get_tesseract_version()
     OCR_AVAILABLE = True
-except ImportError:
-    pass
+
+except ImportError as _e:
+    OCR_ERROR_MSG = (
+        f"Missing Python package: {_e}. "
+        "Add to requirements.txt: pytesseract  pdf2image  opencv-python-headless  pillow"
+    )
+except Exception as _e:
+    _name = type(_e).__name__
+    if "TesseractNotFound" in _name or "tesseract" in str(_e).lower():
+        OCR_ERROR_MSG = (
+            "Tesseract binary not found. "
+            "Streamlit Cloud → add 'tesseract-ocr' and 'poppler-utils' to packages.txt. "
+            "Linux → sudo apt install tesseract-ocr poppler-utils. "
+            "Mac → brew install tesseract poppler."
+        )
+    else:
+        OCR_ERROR_MSG = f"OCR init error ({_name}): {_e}"
 
 # =============================================================================
 # IMPORT CSS – WITH FALLBACK
@@ -3428,7 +3459,7 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir,
 # =============================================================================
 def extract_cibil_from_pdf(uploaded_file):
     if not OCR_AVAILABLE:
-        return {'success': False, 'error': 'OCR libraries not installed. Please install pytesseract, opencv-python, pdf2image, and poppler.'}
+        return {'success': False, 'error': OCR_ERROR_MSG or 'OCR libraries not installed. Check packages.txt and requirements.txt.'}
 
     try:
         pdf_bytes = uploaded_file.read()
@@ -4244,6 +4275,8 @@ with st.sidebar:
 
     stage2_indicator = '✅ Active' if STAGE2_AVAILABLE and is_stage2_available() else '❌ Inactive'
     ocr_indicator = '✅ Ready' if OCR_AVAILABLE else '❌ Not Installed'
+    if not OCR_AVAILABLE and OCR_ERROR_MSG:
+        ocr_indicator += ' ⚠️'
     pdf_indicator = '✅ Ready' if PDF_AVAILABLE else '❌ Not Installed'
 
     st.markdown(f"""
@@ -4995,7 +5028,7 @@ elif page == "🔬 Stage 2 Analysis":
     elif selected_tab == "PDF Upload":
         st.markdown('<p class="section-header">📄 CIBIL PDF Upload</p>', unsafe_allow_html=True)
         if not OCR_AVAILABLE:
-            st.error("❌ OCR libraries not installed! Install with: `pip install pytesseract pdf2image opencv-python pillow`")
+            st.error("❌ OCR not available. " + (OCR_ERROR_MSG or "Check packages.txt and requirements.txt."))
             st.warning("For now, please use the **Manual Entry** tab.")
         else:
             st.markdown("""
