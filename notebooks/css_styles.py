@@ -15,19 +15,21 @@ CSS = """
 
 /* ==================== CSS VARIABLES ==================== */
 :root {
-    --fern-green: #587042;
-    --sage: #A9B494;
-    --cosmic-latte: #FAF7E6;
-    --jasmine: #F8DE8C;
-    --saffron: #F6C531;
-    --dark-fern: #486032;
-    --light-sage: #D4DBC4;
-    --fern-dark: #3d5230;
-    --fern-light: #6d8a57;
-    --sage-light: #c4d1b3;
-    --sage-dark: #8e9d7f;
-    --gold: #FFD700;
-    --gold-light: #FFED4E;
+    --fern-green: #262842;        /* Space Cadet */
+    --sage: #293961;              /* Delfi Blue */
+    --cosmic-latte: #E3E4FA;      /* Lavender (web) */
+    --jasmine: #8897BD;           /* Cool Grey */
+    --saffron: #2C497F;           /* Vikki Blue */
+
+    --dark-fern: #1a1f30;         /* darker than Space Cadet */
+    --light-sage: #8897BD;        /* reuse Cool Grey */
+    --fern-dark: #1a1f30;
+    --fern-light: #2C497F;         /* Vikki Blue as lighter primary */
+    --sage-light: #8897BD;
+    --sage-dark: #1f2a47;          /* approximate darker Delfi Blue */
+    --gold: #8897BD;               /* reuse Cool Grey */
+    --gold-light: #b0c2e0;         /* lighter version of Cool Grey */
+
     --white: #FFFFFF;
     --off-white: #FAFAFA;
     --gray-50: #F9FAFB;
@@ -40,6 +42,8 @@ CSS = """
     --gray-700: #374151;
     --gray-800: #1F2937;
     --gray-900: #111827;
+
+    /* Semantic status colors (unchanged) */
     --success: #10B981;
     --success-light: #D1FAE5;
     --warning: #F59E0B;
@@ -48,13 +52,17 @@ CSS = """
     --danger-light: #FEE2E2;
     --info: #3B82F6;
     --info-light: #DBEAFE;
-    --shadow-sm: 0 1px 2px 0 rgba(88, 112, 66, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(88, 112, 66, 0.1), 0 2px 4px -1px rgba(88, 112, 66, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(88, 112, 66, 0.15), 0 4px 6px -2px rgba(88, 112, 66, 0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(88, 112, 66, 0.2), 0 10px 10px -5px rgba(88, 112, 66, 0.04);
-    --shadow-2xl: 0 25px 50px -12px rgba(88, 112, 66, 0.25);
+
+    /* Shadows – updated to use the new primary color (Space Cadet) */
+    --shadow-sm: 0 1px 2px 0 rgba(38, 40, 66, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(38, 40, 66, 0.1), 0 2px 4px -1px rgba(38, 40, 66, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(38, 40, 66, 0.15), 0 4px 6px -2px rgba(38, 40, 66, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(38, 40, 66, 0.2), 0 10px 10px -5px rgba(38, 40, 66, 0.04);
+    --shadow-2xl: 0 25px 50px -12px rgba(38, 40, 66, 0.25);
+
     --glass-bg: rgba(255, 255, 255, 0.85);
-    --glass-border: rgba(88, 112, 66, 0.18);
+    --glass-border: rgba(38, 40, 66, 0.18);
+
     --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
