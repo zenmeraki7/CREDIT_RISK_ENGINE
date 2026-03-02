@@ -5086,13 +5086,14 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
 Run with: streamlit run test.py (from inside the notebooks folder)
 Author: Zen Meraki
 Date: January 2026
-VERSION: 8.3 - FULLY CORRECTED
+VERSION: 8.3 - FULLY CORRECTED (all fixes applied)
 """
 
 import streamlit as st
@@ -5126,6 +5127,11 @@ import sys
 import os
 from pathlib import Path
 import re
+
+# =============================================================================
+# SUPPRESS SCIKIT-LEARN VERSION WARNINGS (optional, but keeps logs clean)
+# =============================================================================
+warnings.filterwarnings("ignore", category=UserWarning, module='sklearn')
 
 # =============================================================================
 # DYNAMIC PATH RESOLUTION – MAKE ALL PROJECT MODULES IMPORTABLE
@@ -5252,7 +5258,11 @@ init_session_state()
 try:
     from affordability_engine import calculate_emi, calculate_affordability
     from reason_codes import generate_reason_codes
-    from risk_engine import calculate_final_risk_score, fill_missing_ml_fields, clean_sentinel_values, validate_cibil_identity
+    from risk_engine import (
+        calculate_final_risk_score, fill_missing_ml_fields,
+        clean_sentinel_values, validate_cibil_identity
+    )
+    from affordability_engine import check_loan_to_income, check_net_disposable
 except ImportError as e:
     st.error(f"❌ Failed to import required modules: {e}")
     st.info("""
@@ -5371,7 +5381,7 @@ LE_MAP = ASSETS['le_map']
 TARGET_LE = ASSETS['target_le']
 
 # =============================================================================
-# AFFORDABILITY CALCULATION ENGINE
+# AFFORDABILITY CALCULATION ENGINE (embedded for safety)
 # =============================================================================
 def calculate_emi(principal, annual_rate, tenure_months):
     if principal <= 0 or tenure_months <= 0:
@@ -5388,19 +5398,16 @@ def calculate_affordability(monthly_income, loan_amount, interest_rate, tenure_m
     total_emi = new_emi + existing_emi
     foir_percentage = (total_emi / monthly_income) * 100 if monthly_income > 0 else 0
     net_disposable = monthly_income - total_emi
-    max_allowed_emi = monthly_income * 0.45
-    recommended_emi = monthly_income * 0.35
-    affordable = foir_percentage <= 45
-    within_recommended = foir_percentage <= 35
-    if foir_percentage <= 35:
+    max_allowed_emi = monthly_income * 0.50
+    recommended_emi = monthly_income * 0.40
+    affordable = foir_percentage <= 50
+    within_recommended = foir_percentage <= 40
+    if foir_percentage <= 40:
         status = "Excellent"
         status_color = "green"
-    elif foir_percentage <= 40:
+    elif foir_percentage <= 50:
         status = "Acceptable"
         status_color = "yellow"
-    elif foir_percentage <= 45:
-        status = "High - Review Required"
-        status_color = "orange"
     else:
         status = "Over-leveraged"
         status_color = "red"
@@ -5421,7 +5428,7 @@ def calculate_affordability(monthly_income, loan_amount, interest_rate, tenure_m
     }
 
 # =============================================================================
-# REASON CODE GENERATION SYSTEM
+# REASON CODE GENERATION SYSTEM (embedded for safety)
 # =============================================================================
 APPROVAL_REASONS = {
     'high_bureau': 'Excellent credit score ({score})',
@@ -5533,7 +5540,7 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
     return reasons[:3] if reasons else ['Decision based on comprehensive model assessment']
 
 # =============================================================================
-# PD CALCULATION
+# PD CALCULATION (embedded for safety)
 # =============================================================================
 def bureau_score_to_pd(bureau_score):
     if bureau_score >= 800:
@@ -5641,7 +5648,7 @@ def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_co
     return round(final_pd, 2)
 
 # =============================================================================
-# RISK SCORE CALCULATION
+# RISK SCORE CALCULATION (embedded for safety)
 # =============================================================================
 def calculate_final_risk_score(bureau_score, ml_confidence, foir,
                                 dpd_90, dpd_30, net_surplus,
@@ -5906,9 +5913,12 @@ def extract_cibil_from_pdf(uploaded_file):
         return {'error': str(e), 'message': f'Error extracting CIBIL data: {str(e)}', 'success': False}
 
 # =============================================================================
-# HYBRID DECISION ENGINE
+# HYBRID DECISION ENGINE (PATCHED VERSION)
 # =============================================================================
 def make_hybrid_decision_enhanced(customer_dict):
+    # First, fill any missing ML fields (the 38 features not in the form)
+    customer_dict = fill_missing_ml_fields(customer_dict)
+
     policy_checks = {}
     age = customer_dict.get('age', 0)
     employment_type = customer_dict.get('employment_type', 'Salaried')
@@ -5998,6 +6008,27 @@ def make_hybrid_decision_enhanced(customer_dict):
     else:
         policy_checks['inquiries'] = f"✅ {recent_inquiries} inquiries"
 
+    # Active loans check
+    active_loans = customer_dict.get('active_loans_count', 0)
+    if active_loans >= 5:
+        policy_checks['active_loans'] = f"⚠️ High active loans ({int(active_loans)}) — Review"
+        active_loans_flag = True
+    else:
+        policy_checks['active_loans'] = f"✅ Active loans: {int(active_loans)}"
+        active_loans_flag = False
+
+    # Salary stability check
+    salary_stability = customer_dict.get('salary_stability_flag', 'STABLE')
+    if salary_stability == 'UNSTABLE':
+        policy_checks['salary'] = "⚠️ Unstable salary — Review required"
+        salary_flag = True
+    elif salary_stability == 'MODERATE':
+        policy_checks['salary'] = "⚠️ Moderate salary stability"
+        salary_flag = False
+    else:
+        policy_checks['salary'] = "✅ Stable salary"
+        salary_flag = False
+
     input_df = pd.DataFrame([customer_dict])
     for col in TOP_FEATURES:
         if col not in input_df.columns:
@@ -6015,6 +6046,8 @@ def make_hybrid_decision_enhanced(customer_dict):
     final_input = input_df[TOP_FEATURES]
     pred_idx = MODEL.predict(final_input)[0]
     ml_decision = TARGET_LE.inverse_transform([pred_idx])[0]
+    # Save raw ML decision before overrides
+    ml_raw_decision = ml_decision
     try:
         pred_proba = MODEL.predict_proba(final_input)[0]
         confidence = max(pred_proba) * 100
@@ -6033,6 +6066,10 @@ def make_hybrid_decision_enhanced(customer_dict):
         ml_decision = "REVIEW"
     if dependents_flag_review and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
+    if active_loans_flag and ml_decision == "APPROVE":
+        ml_decision = "REVIEW"
+    if salary_flag and ml_decision == "APPROVE":
+        ml_decision = "REVIEW"
 
     risk_score = calculate_final_risk_score(
         bureau_score=bureau_score,
@@ -6041,7 +6078,9 @@ def make_hybrid_decision_enhanced(customer_dict):
         dpd_90=dpd_90,
         dpd_30=customer_dict.get('dpd_30_count_6m', 0),
         net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
-        active_loans=customer_dict.get('active_loans_count', 0)
+        bounces=customer_dict.get('inward_bounce_count_3m', 0),
+        missing_months=customer_dict.get('salary_missing_months', 0),
+        active_loans=active_loans
     )
 
     pd_percentage = calculate_final_pd(
@@ -6059,6 +6098,7 @@ def make_hybrid_decision_enhanced(customer_dict):
 
     return {
         'decision': ml_decision,
+        'ml_raw_decision': ml_raw_decision,
         'reason': "Decision based on comprehensive assessment",
         'confidence': confidence,
         'class_probs': class_probs,
@@ -6069,7 +6109,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     }
 
 # =============================================================================
-# BATCH PREDICTION ENGINE
+# BATCH PREDICTION ENGINE (updated defaults)
 # =============================================================================
 def process_batch_predictions(df):
     results = []
@@ -6089,7 +6129,13 @@ def process_batch_predictions(df):
             'active_loans_count': 0, 'existing_emi': 0, 'avg_salary_6m': 50000,
             'AMT_INCOME_TOTAL': 600000, 'net_cash_surplus_6m': 20000, 'salary_stability_flag': 'STABLE',
             'loan_amount': 180000, 'loan_tenure_months': 24, 'interest_rate': 10.5, 'AMT_ANNUITY': 8500,
-            'dependents': 2,
+            'dependents': 0,
+            'payment_discipline_flag': 'GOOD',
+            'liquidity_flag': 'LOW',
+            'cashflow_health': 'MODERATE',
+            'bureau_risk_flag': 'LOW',
+            'inward_bounce_count_3m': 0,
+            'salary_missing_months': 0,
         }
         for field, default in required_fields.items():
             if field not in customer_dict or pd.isna(customer_dict[field]):
@@ -6274,19 +6320,7 @@ def create_modern_bar_chart(class_probs):
     return fig
 
 # =============================================================================
-# STAGE 2 RESULTS DISPLAY FUNCTION
-# =============================================================================
-
-# =============================================================================
-# STAGE 2 BINARY RESOLVER
-# Stage 2 is the FINAL verdict — only APPROVE or REJECT, no REVIEW.
-# Tier mapping:
-#   P1 (Premium)  → APPROVE  — excellent credit, low risk
-#   P2 (Standard) → APPROVE  — good credit, acceptable risk
-#   P3 (Subprime) → REJECT   — fair credit, elevated risk
-#   P4 (High Risk)→ REJECT   — poor credit, high risk
-# If stage2_engine returns REVIEW/MANUAL_REVIEW, resolve via tier first,
-# then fall back to combined_risk_score threshold (≥ 600 = APPROVE).
+# STAGE 2 BINARY RESOLVER (embedded)
 # =============================================================================
 def resolve_stage2_to_binary(stage2_result: dict) -> dict:
     result = stage2_result.copy()
@@ -6302,20 +6336,13 @@ def resolve_stage2_to_binary(stage2_result: dict) -> dict:
     }
 
     if raw == 'REJECT':
-        # stage2_engine explicitly rejected (e.g. its own FOIR/policy gate fired)
-        # — always trust this, never override with tier
         result['final_decision'] = 'REJECT'
-
     elif raw == 'APPROVE':
-        # stage2_engine approved — enforce tier mapping to catch any mismatch
-        # (e.g. engine says APPROVE but tier is P3/P4 — tier wins, safer to reject)
         if tier in TIER_TO_DECISION:
             result['final_decision'] = TIER_TO_DECISION[tier]
         else:
             result['final_decision'] = 'APPROVE'
-
     else:
-        # raw is REVIEW / MANUAL_REVIEW / anything else — must resolve to binary
         if tier in TIER_TO_DECISION:
             result['final_decision'] = TIER_TO_DECISION[tier]
             result['reason'] = (
@@ -6323,7 +6350,6 @@ def resolve_stage2_to_binary(stage2_result: dict) -> dict:
                 f" [REVIEW resolved to {TIER_TO_DECISION[tier]} via risk tier {tier}]"
             )
         else:
-            # No tier available — fall back to combined risk score threshold
             resolved = 'APPROVE' if score >= 600 else 'REJECT'
             result['final_decision'] = resolved
             result['reason'] = (
@@ -6331,7 +6357,6 @@ def resolve_stage2_to_binary(stage2_result: dict) -> dict:
                 f" [REVIEW resolved to {resolved} via combined risk score {score}]"
             )
 
-    # Update subtitle / interest range to reflect binary outcome
     if result['final_decision'] == 'APPROVE':
         result.setdefault('interest_rate_range',
             {'P1': '9.5% – 11%', 'P2': '11% – 13%'}.get(tier, '11% – 14%'))
@@ -6340,6 +6365,9 @@ def resolve_stage2_to_binary(stage2_result: dict) -> dict:
 
     return result
 
+# =============================================================================
+# STAGE 2 RESULTS DISPLAY (fixed version)
+# =============================================================================
 def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data):
     st.markdown("---")
     st.markdown('<p class="main-header">🎯 Stage 2 Final Results</p>', unsafe_allow_html=True)
@@ -6350,7 +6378,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     stage2_confidence = stage2_result.get('stage2_confidence', 0)
     combined_risk_score = stage2_result.get('combined_risk_score', 0)
 
-    # Stage 2 is FINAL — only APPROVE or REJECT (no REVIEW)
     if final_decision == "APPROVE":
         card_class = "decision-card decision-card-approved"
         icon = "✓"
@@ -6457,7 +6484,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         ml_decision = stage1_data.get('decision', 'ERROR')
         confidence = stage1_data.get('confidence', 0)
 
-        # Sanitize None values that cause "unsupported format string passed to NoneType"
         def _safe(v, default='N/A'):
             return v if v is not None else default
 
@@ -6483,7 +6509,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                 'ml_adjustment': ml_confidence_to_pd_adjustment(confidence, ml_decision),
                 'final_pd': stage1_data.get('pd_percentage', 0)
             },
-            'stage2_final_decision': _safe(final_decision, 'N/A'),  # Always APPROVE or REJECT — Stage 2 is the final binding decision
+            'stage2_final_decision': _safe(final_decision, 'N/A'),
             'stage2_tier': _safe(stage2_tier, 'N/A'),
             'stage2_interest_range': _safe(interest_range, 'N/A'),
             'stage2_combined_risk_score': _safe(combined_risk_score, 0),
@@ -6669,13 +6695,16 @@ elif page == "👤 Assessment":
                            f"{ex.get('written_off_count', 0)} written-off, "
                            f"{ex.get('settled_count', 0)} settled accounts. "
                            f"Score overridden to {ex.get('Credit_Score', '?')}.")
-            # Show application context
-            app_id_s1 = st.session_state.get('current_customer_data', {}).get('application_id', 'Pending submission')
-            st.markdown(f"""
-                <div style="background:#1e3a5f;color:white;padding:0.5rem 1rem;border-radius:0.4rem;margin-bottom:0.5rem;font-size:0.9rem;">
-                    <strong>📋 Application ID:</strong> {app_id_s1}
-                </div>
-            """, unsafe_allow_html=True)
+            # Show application context – FIXED CRASH
+            if st.session_state.get('stage1_complete') and st.session_state.get('current_customer_data'):
+                app_id_s1 = st.session_state.current_customer_data.get('application_id', 'Pending submission')
+                st.markdown(f"""
+                    <div style="background:#1e3a5f;color:white;padding:0.5rem 1rem;border-radius:0.4rem;margin-bottom:0.5rem;font-size:0.9rem;">
+                        <strong>📋 Application ID:</strong> {app_id_s1}
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("No active assessment. Please submit the form below.")
             if st.toggle("📋 Show full extracted JSON"):
                 st.json({k: v for k, v in ex.items() if k != 'raw_text'})
             st.markdown("---")
@@ -6846,6 +6875,37 @@ elif page == "👤 Assessment":
                 value=int(st.session_state.get('pdf_amt_annuity', 8500)), step=500
             )
 
+        # ===== New: Additional Credit Behaviour Fields =====
+        st.markdown('<p class="section-header">📋 Additional Credit Behaviour</p>', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            payment_discipline = st.selectbox(
+                "Payment Discipline", ['GOOD', 'MODERATE', 'POOR'], index=0,
+                help="Overall payment behavior pattern"
+            )
+            liquidity_flag = st.selectbox(
+                "Liquidity", ['LOW', 'ADEQUATE', 'MODERATE'], index=0,
+                help="Cash liquidity position"
+            )
+        with col2:
+            cashflow_health = st.selectbox(
+                "Cashflow Health", ['MODERATE', 'HEALTHY', 'STRESSED'], index=0,
+                help="Overall cashflow health assessment"
+            )
+            bureau_risk_flag = st.selectbox(
+                "Bureau Risk", ['LOW', 'MEDIUM', 'HIGH'], index=0,
+                help="External bureau risk rating"
+            )
+        with col3:
+            inward_bounce_count = st.number_input(
+                "Inward Bounce Count (3M)", 0, 10, 0,
+                help="Number of bounced inward cheques last 3 months"
+            )
+            salary_missing_months = st.number_input(
+                "Missing Salary Months (6M)", 0, 6, 0,
+                help="Months without salary credit"
+            )
+
         st.markdown("<br>", unsafe_allow_html=True)
         submitted = st.form_submit_button("🔍 Assess Credit Risk", use_container_width=True)
 
@@ -6879,21 +6939,13 @@ elif page == "👤 Assessment":
             'AMT_ANNUITY': amt_annuity,
             'application_id': app_id,
             'timestamp': timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            'inward_bounce_count_3m': 0,
-            'salary_missing_months': 0,
-            'payment_discipline_flag': 'GOOD',
-            'liquidity_flag': 'LOW',
-            'cashflow_health': 'MODERATE',
-            'bureau_risk_flag': 'LOW',
-            'hard_reject_flag': 0,
-            'total_dpd_count': dpd_90_6m + dpd_30_6m,
-            'max_dpd_6m': 90 if dpd_90_6m > 0 else (30 if dpd_30_6m > 0 else 0),
-            'salary_amount_cv': 0.1,
-            'salary_creditor_consistent': 1.0,
-            'salary_txn_count_6m': 6,
-            'total_late_15_6m': 0, 'total_late_30_6m': dpd_30_6m, 'total_late_90_6m': dpd_90_6m,
-            'recent_payment_stress': 1 if dpd_90_6m > 0 else 0,
-            'total_emi_monthly': existing_emi,
+            # New fields:
+            'payment_discipline_flag': payment_discipline,
+            'liquidity_flag': liquidity_flag,
+            'cashflow_health': cashflow_health,
+            'bureau_risk_flag': bureau_risk_flag,
+            'inward_bounce_count_3m': inward_bounce_count,
+            'salary_missing_months': salary_missing_months,
         }
 
         with st.spinner("🔄 Processing Stage 1 assessment..."):
@@ -7042,12 +7094,8 @@ elif page == "👤 Assessment":
                 st.plotly_chart(fig1, use_container_width=True)
             with col2:
                 final_decision_tab3 = decision_data.get('decision', 'ERROR')
-                if final_decision_tab3 == "REVIEW":
-                    class_probs = {"APPROVE": 0, "REVIEW": 100, "REJECT": 0}
-                elif final_decision_tab3 == "REJECT":
-                    class_probs = {"APPROVE": 0, "REVIEW": 0, "REJECT": 100}
-                else:
-                    class_probs = decision_data.get('class_probs', {"APPROVE": 0, "REVIEW": 0, "REJECT": 0})
+                # Always show real probabilities, never hardcode
+                class_probs = decision_data.get('class_probs', {"APPROVE": 0, "REVIEW": 0, "REJECT": 0})
                 fig2 = create_modern_bar_chart(class_probs)
                 st.plotly_chart(fig2, use_container_width=True)
 
@@ -7308,6 +7356,8 @@ elif page == "🔬 Stage 2 Analysis":
                     'HL_Flag': 1 if hl_flag else 0,
                     'GL_Flag': 1 if gl_flag else 0,
                 })
+                # Clean sentinel values before passing to stage2 engine
+                enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
                 try:
                     stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
                     stage2_result = resolve_stage2_to_binary(stage2_result)
@@ -7365,7 +7415,6 @@ elif page == "🔬 Stage 2 Analysis":
                             st.metric("Active Accounts", extraction_result.get('num_std', 0))
                             st.metric("Written Off", extraction_result.get('written_off_count', 0))
 
-                        # Full feature table with friendly names + IDs
                         with st.expander("🔍 View All Extracted Features (with internal IDs)", expanded=False):
                             friendly_names = {
                                 'Credit_Score': 'Credit Score',
@@ -7473,6 +7522,9 @@ elif page == "🔬 Stage 2 Analysis":
                             'account_quality_score': extraction_result.get('account_quality_score', 0)
                         })
 
+                        # Clean sentinel values before passing to stage2 engine
+                        enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
+
                         with st.spinner("🔬 Running Stage 2 analysis..."):
                             try:
                                 stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
@@ -7485,7 +7537,7 @@ elif page == "🔬 Stage 2 Analysis":
 
     elif selected_tab == "Batch Analysis":
         st.markdown('<p class="section-header">📊 Batch CIBIL Analysis</p>', unsafe_allow_html=True)
-        st.info("📊 Batch analysis feature coming soon!")
+        st.info("📊 Batch analysis feature coming soon! (Upload a CSV with all required CIBIL fields)")
 
 elif page == "📊 Batch Process":
     st.markdown('<p class="main-header">Batch Processing</p>', unsafe_allow_html=True)
@@ -7630,10 +7682,18 @@ elif page == "📊 Batch Process":
             'loan_tenure_months': [24, 36, 12],
             'interest_rate': [10.5, 11.0, 12.0],
             'existing_emi': [15000, 20000, 8000],
-            'AMT_ANNUITY': [8500, 9500, 4500]
+            'AMT_ANNUITY': [8500, 9500, 4500],
+            # New fields:
+            'payment_discipline_flag': ['GOOD', 'MODERATE', 'POOR'],
+            'liquidity_flag': ['LOW', 'ADEQUATE', 'LOW'],
+            'cashflow_health': ['HEALTHY', 'MODERATE', 'STRESSED'],
+            'bureau_risk_flag': ['LOW', 'MEDIUM', 'HIGH'],
+            'inward_bounce_count_3m': [0, 1, 3],
+            'salary_missing_months': [0, 0, 2],
         }
         template_df = pd.DataFrame(template_data)
         st.dataframe(template_df, use_container_width=True)
+        st.caption("📝 Note: `dependents > 5` will automatically trigger REVIEW regardless of other factors.")
         st.download_button(
             "📥 Download CSV Template",
             data=template_df.to_csv(index=False),
