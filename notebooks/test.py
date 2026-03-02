@@ -5086,7 +5086,6 @@
 
 
 
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -6277,6 +6276,70 @@ def create_modern_bar_chart(class_probs):
 # =============================================================================
 # STAGE 2 RESULTS DISPLAY FUNCTION
 # =============================================================================
+
+# =============================================================================
+# STAGE 2 BINARY RESOLVER
+# Stage 2 is the FINAL verdict — only APPROVE or REJECT, no REVIEW.
+# Tier mapping:
+#   P1 (Premium)  → APPROVE  — excellent credit, low risk
+#   P2 (Standard) → APPROVE  — good credit, acceptable risk
+#   P3 (Subprime) → REJECT   — fair credit, elevated risk
+#   P4 (High Risk)→ REJECT   — poor credit, high risk
+# If stage2_engine returns REVIEW/MANUAL_REVIEW, resolve via tier first,
+# then fall back to combined_risk_score threshold (≥ 600 = APPROVE).
+# =============================================================================
+def resolve_stage2_to_binary(stage2_result: dict) -> dict:
+    result = stage2_result.copy()
+    tier   = result.get('stage2_tier', '')
+    raw    = result.get('final_decision', '')
+    score  = result.get('combined_risk_score', 0) or 0
+
+    TIER_TO_DECISION = {
+        'P1': 'APPROVE',
+        'P2': 'APPROVE',
+        'P3': 'REJECT',
+        'P4': 'REJECT',
+    }
+
+    if raw == 'REJECT':
+        # stage2_engine explicitly rejected (e.g. its own FOIR/policy gate fired)
+        # — always trust this, never override with tier
+        result['final_decision'] = 'REJECT'
+
+    elif raw == 'APPROVE':
+        # stage2_engine approved — enforce tier mapping to catch any mismatch
+        # (e.g. engine says APPROVE but tier is P3/P4 — tier wins, safer to reject)
+        if tier in TIER_TO_DECISION:
+            result['final_decision'] = TIER_TO_DECISION[tier]
+        else:
+            result['final_decision'] = 'APPROVE'
+
+    else:
+        # raw is REVIEW / MANUAL_REVIEW / anything else — must resolve to binary
+        if tier in TIER_TO_DECISION:
+            result['final_decision'] = TIER_TO_DECISION[tier]
+            result['reason'] = (
+                result.get('reason', '') +
+                f" [REVIEW resolved to {TIER_TO_DECISION[tier]} via risk tier {tier}]"
+            )
+        else:
+            # No tier available — fall back to combined risk score threshold
+            resolved = 'APPROVE' if score >= 600 else 'REJECT'
+            result['final_decision'] = resolved
+            result['reason'] = (
+                result.get('reason', '') +
+                f" [REVIEW resolved to {resolved} via combined risk score {score}]"
+            )
+
+    # Update subtitle / interest range to reflect binary outcome
+    if result['final_decision'] == 'APPROVE':
+        result.setdefault('interest_rate_range',
+            {'P1': '9.5% – 11%', 'P2': '11% – 13%'}.get(tier, '11% – 14%'))
+    else:
+        result['interest_rate_range'] = 'N/A — Rejected'
+
+    return result
+
 def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data):
     st.markdown("---")
     st.markdown('<p class="main-header">🎯 Stage 2 Final Results</p>', unsafe_allow_html=True)
@@ -6287,18 +6350,15 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     stage2_confidence = stage2_result.get('stage2_confidence', 0)
     combined_risk_score = stage2_result.get('combined_risk_score', 0)
 
+    # Stage 2 is FINAL — only APPROVE or REJECT (no REVIEW)
     if final_decision == "APPROVE":
         card_class = "decision-card decision-card-approved"
         icon = "✓"
-        subtitle = "Application Approved - Proceed to Disbursement"
-    elif final_decision in ["REVIEW", "MANUAL_REVIEW"]:
-        card_class = "decision-card decision-card-review"
-        icon = "⚠"
-        subtitle = "Requires Manual Review"
+        subtitle = "✅ Final Decision: Approved — Proceed to Disbursement"
     else:
         card_class = "decision-card decision-card-rejected"
         icon = "✗"
-        subtitle = "Application Rejected"
+        subtitle = "❌ Final Decision: Rejected — Application Declined"
 
     st.markdown(f"""
         <div class="{card_class}">
@@ -6324,20 +6384,28 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
 
     with tab1:
         st.markdown("### 📊 Decision Comparison")
+        s1_dec   = st.session_state.get('stage1_decision', 'N/A')
+        s2_label = "✅ APPROVE" if final_decision == "APPROVE" else "❌ REJECT"
         comparison_df = pd.DataFrame([
-            {'Stage': 'Stage 1 (Basic)', 'Decision': st.session_state.get('stage1_decision'),
-             'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A'},
-            {'Stage': 'Stage 2 (CIBIL Deep)', 'Decision': final_decision,
-             'Risk Score': combined_risk_score, 'Tier': f"{stage2_tier} | {interest_range}"}
+            {'Stage': 'Stage 1 (Screening)', 'Decision': s1_dec,
+             'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A',
+             'Note': 'APPROVE / REVIEW → proceed to Stage 2'},
+            {'Stage': 'Stage 2 — FINAL (CIBIL Deep)', 'Decision': s2_label,
+             'Risk Score': combined_risk_score, 'Tier': f"{stage2_tier} | {interest_range}",
+             'Note': 'Binding final decision'}
         ])
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
         st.markdown("### 🎯 Risk Tier Details")
         tier_info = {
-            'P1': {'name': 'Premium', 'color': '#10B981', 'desc': 'Excellent credit profile'},
-            'P2': {'name': 'Standard', 'color': '#3B82F6', 'desc': 'Good credit profile'},
-            'P3': {'name': 'Subprime', 'color': '#F59E0B', 'desc': 'Fair credit with concerns'},
-            'P4': {'name': 'High Risk', 'color': '#EF4444', 'desc': 'High risk profile'},
+            'P1': {'name': 'Premium  → APPROVED',  'color': '#10B981',
+                   'desc': 'Excellent credit profile — lowest interest rate band'},
+            'P2': {'name': 'Standard → APPROVED',  'color': '#3B82F6',
+                   'desc': 'Good credit profile — standard interest rate band'},
+            'P3': {'name': 'Subprime → REJECTED',  'color': '#F59E0B',
+                   'desc': 'Fair credit with elevated risk — application declined'},
+            'P4': {'name': 'High Risk → REJECTED', 'color': '#EF4444',
+                   'desc': 'High risk profile — application declined'},
         }
         if stage2_tier in tier_info:
             tier_data = tier_info[stage2_tier]
@@ -6415,7 +6483,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                 'ml_adjustment': ml_confidence_to_pd_adjustment(confidence, ml_decision),
                 'final_pd': stage1_data.get('pd_percentage', 0)
             },
-            'stage2_final_decision': _safe(final_decision, 'N/A'),
+            'stage2_final_decision': _safe(final_decision, 'N/A'),  # Always APPROVE or REJECT — Stage 2 is the final binding decision
             'stage2_tier': _safe(stage2_tier, 'N/A'),
             'stage2_interest_range': _safe(interest_range, 'N/A'),
             'stage2_combined_risk_score': _safe(combined_risk_score, 0),
@@ -7242,6 +7310,7 @@ elif page == "🔬 Stage 2 Analysis":
                 })
                 try:
                     stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
+                    stage2_result = resolve_stage2_to_binary(stage2_result)
                     display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data)
                 except Exception as e:
                     st.error(f"❌ Stage 2 analysis failed: {str(e)}")
@@ -7407,6 +7476,7 @@ elif page == "🔬 Stage 2 Analysis":
                         with st.spinner("🔬 Running Stage 2 analysis..."):
                             try:
                                 stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
+                                stage2_result = resolve_stage2_to_binary(stage2_result)
                                 display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data)
                             except Exception as e:
                                 st.error(f"❌ Analysis failed: {str(e)}")
@@ -7636,4 +7706,3 @@ elif page == "ℹ️ About":
                 </div>
             </div>
         """, unsafe_allow_html=True)
-
