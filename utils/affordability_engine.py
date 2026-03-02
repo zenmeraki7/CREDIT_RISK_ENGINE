@@ -14,7 +14,7 @@ FOIR_HARD_LIMIT    = 50.0   # Hard reject threshold (your original: >50% = over-
 FOIR_REVIEW_LIMIT  = 45.0   # Review/orange zone upper boundary
 FOIR_ACCEPTABLE    = 40.0   # Acceptable/yellow zone upper boundary
 FOIR_COMFORTABLE   = 35.0   # Comfortable limit (recommended)
-MIN_NET_DISPOSABLE = 15000  # Minimum net disposable income required (₹10,000/month)
+MIN_NET_DISPOSABLE = 10000  # Minimum net disposable income required (₹10,000/month)
 
 
 def calculate_emi(principal: float, annual_rate: float, tenure_months: int) -> float:
@@ -141,7 +141,7 @@ def check_loan_to_income(loan_amount: float, annual_income: float) -> dict:
                 'message': f"Loan-to-income ratio {ratio}x is extreme — high default risk"}
 
 
-def check_net_disposable(net_disposable: float, minimum: float = 15000.0) -> dict:
+def check_net_disposable(net_disposable: float, minimum: float = 10000.0) -> dict:
     """
     Net disposable income check.
     ≥ minimum → ok
