@@ -5917,7 +5917,7 @@ def extract_cibil_from_pdf(uploaded_file):
 # =============================================================================
 def make_hybrid_decision_enhanced(customer_dict):
     # First, fill any missing ML fields (the 38 features not in the form)
-    customer_dict = fill_missing_ml_fields(customer_dict)
+    fill_missing_ml_fields(customer_dict)
 
     policy_checks = {}
     age = customer_dict.get('age', 0)
