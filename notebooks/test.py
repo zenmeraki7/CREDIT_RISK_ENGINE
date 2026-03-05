@@ -6061,15 +6061,32 @@ def make_hybrid_decision_enhanced(customer_dict):
     interest_rate = customer_dict.get('interest_rate', 10.5)
     existing_emi = customer_dict.get('existing_emi', 0)
     affordability_data = calculate_affordability(monthly_income, loan_amount, interest_rate, loan_tenure, existing_emi)
-    foir = affordability_data['foir_percentage']
-    if ml_decision == "APPROVE" and foir > 50:
-        ml_decision = "REVIEW"
+    foir = affordability_data['foir_percentage'
+        # --- FOIR > 50% forces REJECT immediately ---
+    if foir > 50:
+        ml_decision = "REJECT"
+        policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
+
+    # Other overrides only apply if still APPROVE
     if dependents_flag_review and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
     if active_loans_flag and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
     if salary_flag and ml_decision == "APPROVE":
         ml_decision = "REVIEW"
+
+
+        
+    # if ml_decision == "APPROVE" and foir > 50:
+    #     ml_decision = "REVIEW"
+    # if dependents_flag_review and ml_decision == "APPROVE":
+    #     ml_decision = "REVIEW"
+    # if active_loans_flag and ml_decision == "APPROVE":
+    #     ml_decision = "REVIEW"
+    # if salary_flag and ml_decision == "APPROVE":
+    #     ml_decision = "REVIEW"
+
+
 
     risk_score = calculate_final_risk_score(
         bureau_score=bureau_score,
