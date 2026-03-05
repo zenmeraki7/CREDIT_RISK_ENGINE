@@ -7261,7 +7261,10 @@ elif page == "🔬 Stage 2 Analysis":
 
             st.markdown("---")
             st.markdown("### 🏦 CIBIL Bureau Data")
-            
+
+
+
+
             st.markdown("---")
             st.markdown("### 👤 Demographics & Product Enquiries")
 
@@ -7298,6 +7301,10 @@ elif page == "🔬 Stage 2 Analysis":
                     ["Credit Card", "Personal Loan", "Home Loan", "Others", "None"],
                     help="First product enquiry type in last 2 months"
                 )
+
+
+
+
 
             col1, col2, col3 = st.columns(3)
             with col1:
