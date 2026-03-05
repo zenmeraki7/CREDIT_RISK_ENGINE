@@ -6622,7 +6622,7 @@ with st.sidebar:
 # =============================================================================
 
 if page == "🏠 Home":
-    st.markdown('<p class="main-header">Credit Risk Assessment Platform</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">Credit Risk Engine</p>', unsafe_allow_html=True)
     st.markdown("""
         <div class="info-box">
             <h3 style="margin-top: 0;">🎯 AI-Powered Lending Decisions</h3>
