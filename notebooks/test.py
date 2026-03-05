@@ -7261,6 +7261,43 @@ elif page == "🔬 Stage 2 Analysis":
 
             st.markdown("---")
             st.markdown("### 🏦 CIBIL Bureau Data")
+            
+            st.markdown("---")
+            st.markdown("### 👤 Demographics & Product Enquiries")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                gender = st.selectbox(
+                    "Gender",
+                    ["Male", "Female", "Others"],
+                    help="Select gender as per CIBIL report"
+                )
+            with col2:
+                marital_status = st.selectbox(
+                    "Marital Status",
+                    ["Married", "Single", "Divorced", "Widowed", "Others"],
+                    help="Marital status from bureau data"
+                )
+            with col3:
+                education = st.selectbox(
+                    "Education",
+                    ["Graduate", "Post Graduate", "Under Graduate", "Professional", "Others"],
+                    help="Highest education level"
+                )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                last_prod_enq2 = st.selectbox(
+                    "Last Product Enquiry (2M)",
+                    ["Credit Card", "Personal Loan", "Home Loan", "Others", "None"],
+                    help="Most recent product enquiry type in last 2 months"
+                )
+            with col2:
+                first_prod_enq2 = st.selectbox(
+                    "First Product Enquiry (2M)",
+                    ["Credit Card", "Personal Loan", "Home Loan", "Others", "None"],
+                    help="First product enquiry type in last 2 months"
+                )
 
             col1, col2, col3 = st.columns(3)
             with col1:
