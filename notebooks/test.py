@@ -6061,7 +6061,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     interest_rate = customer_dict.get('interest_rate', 10.5)
     existing_emi = customer_dict.get('existing_emi', 0)
     affordability_data = calculate_affordability(monthly_income, loan_amount, interest_rate, loan_tenure, existing_emi)
-    foir = affordability_data['foir_percentage'
+    foir = affordability_data['foir_percentage']
         # --- FOIR > 50% forces REJECT immediately ---
     if foir > 50:
         ml_decision = "REJECT"
