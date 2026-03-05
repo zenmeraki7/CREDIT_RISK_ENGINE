@@ -7399,6 +7399,11 @@ elif page == "🔬 Stage 2 Analysis":
                     'PL_Flag': 1 if pl_flag else 0,
                     'HL_Flag': 1 if hl_flag else 0,
                     'GL_Flag': 1 if gl_flag else 0,
+                     'GENDER': gender,
+                     'MARITALSTATUS': marital_status,
+                     'EDUCATION': education,
+                     'last_prod_enq2': last_prod_enq2,
+                     'first_prod_enq2': first_prod_enq2,
                 })
                 # Clean sentinel values before passing to stage2 engine
                 enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
