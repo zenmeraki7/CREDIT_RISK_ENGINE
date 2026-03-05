@@ -7288,23 +7288,6 @@ elif page == "🔬 Stage 2 Analysis":
                     help="Highest education level"
                 )
 
-            col1, col2 = st.columns(2)
-            with col1:
-                last_prod_enq2 = st.selectbox(
-                    "Last Product Enquiry (2M)",
-                    ["Credit Card", "Personal Loan", "Home Loan", "Others", "None"],
-                    help="Most recent product enquiry type in last 2 months"
-                )
-            with col2:
-                first_prod_enq2 = st.selectbox(
-                    "First Product Enquiry (2M)",
-                    ["Credit Card", "Personal Loan", "Home Loan", "Others", "None"],
-                    help="First product enquiry type in last 2 months"
-                )
-
-
-
-
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -7402,8 +7385,6 @@ elif page == "🔬 Stage 2 Analysis":
                      'GENDER': gender,
                      'MARITALSTATUS': marital_status,
                      'EDUCATION': education,
-                     'last_prod_enq2': last_prod_enq2,
-                     'first_prod_enq2': first_prod_enq2,
                 })
                 # Clean sentinel values before passing to stage2 engine
                 enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
