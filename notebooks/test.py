@@ -8373,6 +8373,7 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -8945,18 +8946,26 @@ def extract_cibil_from_pdf(uploaded_file):
 # =============================================================================
 # FAIRNESS LOG HELPER
 # =============================================================================
-def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: int, pd_pct: float):
-    """Append a minimal record to the in-session fairness log."""
+def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: int, pd_pct: float,
+                               application_id: str = None, source: str = 'stage1'):
+    """
+    Append a minimal record to the in-session fairness log.
+    source = 'stage1' | 'stage2' | 'batch'
+    When Stage 2 completes, it REPLACES the Stage 1 record for the same application_id,
+    so the fairness dashboard always shows the FINAL binding decision.
+    """
     record = {
-        'ts':             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'decision':       decision,
-        'risk_score':     risk_score,
-        'pd_pct':         pd_pct,
-        'gender':         customer_data.get('gender', 'Unknown'),
-        'city_tier':      customer_data.get('city_tier', 'Unknown'),
+        'ts':              datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'application_id':  application_id or customer_data.get('application_id', ''),
+        'source':          source,
+        'decision':        decision,
+        'risk_score':      risk_score,
+        'pd_pct':          pd_pct,
+        'gender':          customer_data.get('gender', 'Unknown'),
+        'city_tier':       customer_data.get('city_tier', 'Unknown'),
         'employment_type': customer_data.get('employment_type', 'Unknown'),
-        'bureau_score':   customer_data.get('bureau_score', 0),
-        'age_band':       (
+        'bureau_score':    customer_data.get('bureau_score', 0),
+        'age_band':        (
             '24-30' if customer_data.get('age', 0) < 31 else
             '31-40' if customer_data.get('age', 0) < 41 else
             '41-50' if customer_data.get('age', 0) < 51 else '51+'
@@ -9342,6 +9351,25 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     stage2_confidence = stage2_result.get('stage2_confidence', 0)
     combined_risk     = stage2_result.get('combined_risk_score', 0)
 
+    # ── Fairness log: use Stage 2 FINAL decision, remove the earlier Stage 1 entry ──
+    # Stage 1 logged a preliminary decision for this customer. Since Stage 2
+    # is the BINDING final decision, we replace that entry so the fairness
+    # dashboard always reflects the true outcome.
+    app_id = stage1_customer.get('application_id', None)
+    if app_id and 'fairness_log' in st.session_state:
+        st.session_state.fairness_log = [
+            r for r in st.session_state.fairness_log
+            if r.get('application_id') != app_id
+        ]
+    log_decision_for_fairness(
+        enhanced_customer_data,
+        final_decision,
+        combined_risk,
+        stage2_result.get('pd_percentage', stage1_data.get('pd_percentage', 0)),
+        application_id=app_id,
+        source='stage2'
+    )
+
     if final_decision == "APPROVE":
         st.markdown('<div class="decision-card decision-card-approved"><div class="decision-title">✓ APPROVE</div><div class="decision-subtitle">✅ Final Decision: Approved — Proceed to Disbursement</div></div>', unsafe_allow_html=True)
     else:
@@ -9401,21 +9429,59 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         if PDF_AVAILABLE and generate_audit_pdf is not None:
             try:
                 _safe = lambda v, d='N/A': v if v is not None else d
+                # Build full pd_calculation_factors from enhanced customer data
+                _bs  = enhanced_customer_data.get('bureau_score', stage1_customer.get('bureau_score', 0))
+                _foir = stage1_data.get('affordability_data', {}).get('foir_percentage', 0)
+                _conf = stage1_data.get('confidence', 0)
+                _dpd90 = enhanced_customer_data.get('dpd_90_count_6m', stage1_customer.get('dpd_90_count_6m', 0))
+                _dpd30 = enhanced_customer_data.get('dpd_30_count_6m', stage1_customer.get('dpd_30_count_6m', 0))
+                _emp_type = enhanced_customer_data.get('employment_type', stage1_customer.get('employment_type', 'Salaried'))
+                _emp_ten  = enhanced_customer_data.get('employment_tenure_months', stage1_customer.get('employment_tenure_months', 24))
+                _biz_vin  = enhanced_customer_data.get('business_vintage_years', stage1_customer.get('business_vintage_years', 0))
+                _inq      = enhanced_customer_data.get('recent_inquiries_3m', stage1_customer.get('recent_inquiries_3m', 0))
+                _base_pd   = bureau_score_to_pd(_bs)
+                _foir_adj  = foir_to_pd_adjustment(_foir)
+                _deliq_mul = delinquency_to_pd_multiplier(_dpd90, _dpd30)
+                _emp_adj   = employment_stability_to_pd_adjustment(_emp_type, _emp_ten, _biz_vin)
+                _inq_adj   = inquiry_pattern_to_pd_adjustment(_inq)
+                _ml_adj    = ml_confidence_to_pd_adjustment(_conf, stage1_data.get('decision','REVIEW'))
+                _final_pd  = stage1_data.get('pd_percentage', round(max(0.5, min(
+                    _base_pd * _deliq_mul + _foir_adj + _emp_adj + _inq_adj + _ml_adj, 25.0)), 2))
+
                 report_data = {
-                    'application_id': _safe(stage1_customer.get('application_id')),
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'decision': _safe(stage1_data.get('decision')),
-                    'stage2_final_decision': _safe(final_decision),
-                    'stage2_tier': _safe(stage2_tier),
-                    'stage2_interest_range': _safe(interest_range),
+                    'application_id':  _safe(stage1_customer.get('application_id')),
+                    'timestamp':       datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'model_version':   '8.7',
+                    'decision':        _safe(stage1_data.get('decision')),
+                    'stage2_final_decision':      _safe(final_decision),
+                    'stage2_tier':                _safe(stage2_tier),
+                    'stage2_interest_range':      _safe(interest_range),
                     'stage2_combined_risk_score': _safe(combined_risk, 0),
-                    'stage2_confidence': _safe(stage2_confidence, 0),
-                    'stage2_reason': _safe(stage2_result.get('reason')),
-                    'stage2_tier_probabilities': stage2_result.get('tier_probabilities') or {},
-                    'stage2_complete_analysis': stage2_result,
-                    'stage1_data': stage1_data,
-                    'customer_data': stage1_customer,
-                    'enhanced_customer_data': enhanced_customer_data
+                    'stage2_confidence':          _safe(stage2_confidence, 0),
+                    'stage2_reason':              _safe(stage2_result.get('reason')),
+                    'stage2_tier_probabilities':  stage2_result.get('tier_probabilities') or {},
+                    'stage2_complete_analysis':   stage2_result,
+                    # Policy gate results
+                    'policy_checks': stage1_data.get('policy_checks', {}),
+                    # Full PD calculation breakdown
+                    'pd_calculation_factors': {
+                        'bureau_score':           _bs,
+                        'base_pd':                round(_base_pd, 2),
+                        'dpd_90':                 _dpd90,
+                        'dpd_30':                 _dpd30,
+                        'delinquency_multiplier': round(_deliq_mul, 2),
+                        'foir':                   round(_foir, 2),
+                        'foir_adjustment':        round(_foir_adj, 2),
+                        'employment_adjustment':  round(_emp_adj, 2),
+                        'inquiry_adjustment':     round(_inq_adj, 2),
+                        'ml_adjustment':          round(_ml_adj, 2),
+                        'final_pd':               _final_pd,
+                    },
+                    # Reason codes from Stage 1
+                    'reason_codes': stage1_customer.get('reason_codes', []),
+                    # Raw data refs
+                    'customer_data':          stage1_customer,
+                    'enhanced_customer_data': enhanced_customer_data,
                 }
                 pdf_buffer = generate_audit_pdf(report_data)
                 st.download_button("📥 Download PDF Report", data=pdf_buffer,
@@ -9452,6 +9518,9 @@ def render_fairness_dashboard():
         <div class="info-box">
             <strong>RBI Fair Lending Compliance Dashboard</strong><br>
             Tracks approval rates across demographic groups to detect potential disparate impact.
+            <strong>Fairness is measured on the FINAL binding decision</strong> — Stage 2 outcome
+            is used when available; Stage 1 (screening) entries are automatically replaced once
+            Stage 2 completes for the same application.
             Data is session-based — decisions accumulate as applications are processed.
         </div>
     """, unsafe_allow_html=True)
@@ -9479,6 +9548,14 @@ def render_fairness_dashboard():
     df = pd.DataFrame(log)
     df['approved'] = (df['decision'] == 'APPROVE').astype(int)
     n = len(df)
+
+    # Source breakdown
+    if 'source' in df.columns:
+        n_s2    = int((df['source'] == 'stage2').sum())
+        n_s1    = int((df['source'] == 'stage1').sum())
+        n_batch = int((df['source'] == 'batch').sum())
+        src_note = f"📌 {n_s2} Stage 2 (final) · {n_s1} Stage 1 (screening) · {n_batch} Batch"
+        st.caption(src_note)
 
     st.markdown("---")
     c1, c2, c3, c4 = st.columns(4)
@@ -9896,9 +9973,11 @@ elif page == "👤 Assessment":
         )
         customer_data['reason_codes'] = reasons
 
-        # Log to fairness monitor
+        # Log to fairness monitor (Stage 1 — may be replaced by Stage 2 final decision)
         log_decision_for_fairness(customer_data, decision_data.get('decision','ERROR'),
-                                  decision_data.get('risk_score', 0), decision_data.get('pd_percentage', 0))
+                                  decision_data.get('risk_score', 0), decision_data.get('pd_percentage', 0),
+                                  application_id=customer_data.get('application_id'),
+                                  source='stage1')
 
         st.session_state.stage1_complete = True
         st.session_state.stage1_decision = decision_data.get('decision', 'ERROR')
@@ -10434,4 +10513,3 @@ elif page == "ℹ️ About":
                 </ul></div>
             </div>
         """, unsafe_allow_html=True)
-
