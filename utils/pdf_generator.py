@@ -631,6 +631,115 @@
 
 
 
+# """
+# PDF Summary Generator
+# Generates downloadable decision summary reports
+# """
+
+# from turtle import st
+# from reportlab.lib.pagesizes import A4
+# from reportlab.lib.styles import getSampleStyleSheet
+# from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+# from reportlab.lib import colors
+# from reportlab.lib.units import inch
+# import io
+
+
+# def generate_decision_pdf(decision_data, customer_data, affordability_data, reasons):
+#     """
+#     Generate PDF summary of credit decision
+#     """
+    
+#     buffer = io.BytesIO()
+#     doc = SimpleDocTemplate(buffer, pagesize=A4)
+#     elements = []
+#     styles = getSampleStyleSheet()
+    
+#     # Title
+#     title = Paragraph(f"<b>Credit Decision Summary</b>", styles['Title'])
+#     elements.append(title)
+#     elements.append(Spacer(1, 0.3*inch))
+    
+#     # Application details
+#     app_info = f"""
+#     <b>Application ID:</b> {decision_data['application_id']}<br/>
+#     <b>Decision Date:</b> {decision_data['timestamp']}<br/>
+#     <b>Decision:</b> {decision_data['decision']}<br/>
+#     <b>Risk Score:</b> {decision_data['risk_score']}/1000<br/>
+#     <b>PD:</b> {decision_data['pd_percentage']}%
+#     """
+#     elements.append(Paragraph(app_info, styles['Normal']))
+#     elements.append(Spacer(1, 0.3*inch))
+    
+#     # Customer details table
+#     customer_table_data = [
+#         ['Field', 'Value'],
+#         ['Name', customer_data.get('name', 'N/A')],
+#         ['Age', str(customer_data.get('age', 'N/A'))],
+#         ['Bureau Score', str(customer_data.get('bureau_score', 'N/A'))],
+#         ['Monthly Income', f"₹{customer_data.get('avg_salary_6m', 0):,}"],
+#     ]
+    
+#     customer_table = Table(customer_table_data, colWidths=[3*inch, 3*inch])
+#     customer_table.setStyle(TableStyle([
+#         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+#         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+#         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+#         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+#         ('FONTSIZE', (0, 0), (-1, 0), 12),
+#         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+#         ('GRID', (0, 0), (-1, -1), 1, colors.black)
+#     ]))
+    
+#     elements.append(customer_table)
+#     elements.append(Spacer(1, 0.3*inch))
+    
+#     # Affordability breakdown
+#     affordability_text = f"""
+#     <b>Affordability Assessment:</b><br/>
+#     Monthly Income: ₹{affordability_data['monthly_income']:,}<br/>
+#     Total EMI: ₹{affordability_data['total_emi']:,}<br/>
+#     FOIR: {affordability_data['foir_percentage']}%<br/>
+#     Net Disposable: ₹{affordability_data['net_disposable']:,}
+#     """
+#     elements.append(Paragraph(affordability_text, styles['Normal']))
+#     elements.append(Spacer(1, 0.3*inch))
+    
+#     # Reason codes
+#     reasons_text = "<b>Decision Reasons:</b><br/>"
+#     for i, reason in enumerate(reasons, 1):
+#         reasons_text += f"{i}. {reason}<br/>"
+    
+#     elements.append(Paragraph(reasons_text, styles['Normal']))
+    
+#     # Build PDF
+#     doc.build(elements)
+#     buffer.seek(0)
+    
+#     return buffer
+
+
+# # Usage in Streamlit
+# def add_download_button(decision_data, customer_data, affordability_data, reasons):
+#     """Add download button to Streamlit page"""
+    
+#     pdf_buffer = generate_decision_pdf(
+#         decision_data, customer_data, affordability_data, reasons
+#     )
+    
+#     st.download_button(
+#         label="📥 Download Decision Summary",
+#         data=pdf_buffer,
+#         file_name=f"credit_decision_{decision_data['application_id']}.pdf",
+#         mime="application/pdf",
+#         use_container_width=True
+#     )
+
+
+##################################################################################
+
+
+
 
 """
 PDF Generation Utility for Credit Risk Assessment
@@ -1002,10 +1111,10 @@ def generate_audit_pdf(audit_log):
     # Policy Checks
     story.append(Paragraph("POLICY GATE CHECKS", heading_style))
     policy_checks = audit_log.get('policy_checks', {})
-    policy_data = [[k, v] for k, v in policy_checks.items()]
-    
+    policy_data = [[k, str(v)] for k, v in policy_checks.items()]
+
     if policy_data:
-        policy_table = Table(policy_data, colWidths=[2*inch, 5*inch])
+        policy_table = Table(policy_data, colWidths=[2.5*inch, 4.5*inch])
         policy_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f7fafc')),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
@@ -1016,39 +1125,45 @@ def generate_audit_pdf(audit_log):
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
         ]))
         story.append(policy_table)
+    else:
+        story.append(Paragraph("Policy gate checks not recorded for this assessment.", styles['Normal']))
     story.append(Spacer(1, 0.3*inch))
-    
+
     # PD Calculation Breakdown
     story.append(Paragraph("PD CALCULATION FACTORS", heading_style))
     pd_factors = audit_log.get('pd_calculation_factors', {})
-    pd_data = [
-        ['Bureau Score:', str(pd_factors.get('bureau_score', 'N/A'))],
-        ['Base PD:', f"{pd_factors.get('base_pd', 0):.2f}%"],
-        ['DPD 90+ Count:', str(pd_factors.get('dpd_90', 0))],
-        ['DPD 30+ Count:', str(pd_factors.get('dpd_30', 0))],
-        ['Delinquency Multiplier:', f"{pd_factors.get('delinquency_multiplier', 1):.2f}x"],
-        ['FOIR:', f"{pd_factors.get('foir', 0):.2f}%"],
-        ['FOIR Adjustment:', f"{pd_factors.get('foir_adjustment', 0):.2f}%"],
-        ['Employment Adjustment:', f"{pd_factors.get('employment_adjustment', 0):.2f}%"],
-        ['ML Adjustment:', f"{pd_factors.get('ml_adjustment', 0):.2f}%"],
-        ['FINAL PD:', f"{pd_factors.get('final_pd', 0):.2f}%"]
-    ]
-    
-    pd_table = Table(pd_data, colWidths=[2.5*inch, 4.5*inch])
-    pd_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f7fafc')),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#edf2f7')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
-    ]))
-    story.append(pd_table)
+
+    if not pd_factors:
+        story.append(Paragraph("PD calculation factors not available for this report.", styles['Normal']))
+    else:
+        pd_data = [
+            ['Bureau Score:',          str(pd_factors.get('bureau_score', 'N/A'))],
+            ['Base PD:',               f"{pd_factors.get('base_pd', 0):.2f}%"],
+            ['DPD 90+ Count:',         str(pd_factors.get('dpd_90', 0))],
+            ['DPD 30+ Count:',         str(pd_factors.get('dpd_30', 0))],
+            ['Delinquency Multiplier:', f"{pd_factors.get('delinquency_multiplier', 1):.2f}x  (Base PD x Multiplier = {pd_factors.get('base_pd',0)*pd_factors.get('delinquency_multiplier',1):.2f}%)"],
+            ['FOIR:',                  f"{pd_factors.get('foir', 0):.2f}%"],
+            ['FOIR Adjustment:',       f"+{pd_factors.get('foir_adjustment', 0):.2f}%"],
+            ['Employment Adjustment:', f"+{pd_factors.get('employment_adjustment', 0):.2f}%"],
+            ['Inquiry Adjustment:',    f"+{pd_factors.get('inquiry_adjustment', 0):.2f}%"],
+            ['ML Confidence Adj:',     f"+{pd_factors.get('ml_adjustment', 0):.2f}%"],
+            ['FINAL PD:',              f"{pd_factors.get('final_pd', 0):.2f}%"],
+        ]
+        pd_table = Table(pd_data, colWidths=[2.5*inch, 4.5*inch])
+        pd_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f7fafc')),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#edf2f7')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+        ]))
+        story.append(pd_table)
     story.append(Spacer(1, 0.3*inch))
-    
+
     # ===== STAGE 2 DEEP DIVE RESULTS =====
     if 'stage2_final_decision' in audit_log:
         story.append(Paragraph("STAGE 2 DEEP DIVE RESULTS", heading_style))
@@ -1092,10 +1207,10 @@ def generate_audit_pdf(audit_log):
         story.append(Spacer(1, 0.3*inch))
     
     # Reason Codes
-    story.append(Paragraph("DECISION REASONS", heading_style))
+    story.append(Paragraph("DECISION REASONS (Stage 1 Screening)", heading_style))
     reasons = audit_log.get('reason_codes', [])
     reasons_data = [[f"{i}.", reason] for i, reason in enumerate(reasons, 1)]
-    
+
     if reasons_data:
         reasons_table = Table(reasons_data, colWidths=[0.5*inch, 6.5*inch])
         reasons_table.setStyle(TableStyle([
@@ -1107,6 +1222,8 @@ def generate_audit_pdf(audit_log):
             ('VALIGN', (0, 0), (-1, -1), 'TOP')
         ]))
         story.append(reasons_table)
+    else:
+        story.append(Paragraph("Reason codes not available. Final outcome determined by Stage 2 CIBIL Deep Dive — see Stage 2 Reason above.", styles['Normal']))
     
     story.append(Spacer(1, 0.5*inch))
     
