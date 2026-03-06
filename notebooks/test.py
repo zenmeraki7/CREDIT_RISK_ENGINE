@@ -9054,9 +9054,27 @@ def make_hybrid_decision_enhanced(customer_dict):
     credit_utilization = customer_dict.get('credit_utilization_pct', 0)
     recent_inquiries = customer_dict.get('recent_inquiries_3m', 0)
 
-    if bureau_score < 550:
-        policy_checks['bureau'] = f"❌ Bureau Score {bureau_score} (Min: 550)"
-        return {'decision': "REJECT", 'reason': "Policy Gate: Bureau score too low", 'confidence': 0,
+        # --- DPD 90+ rule ---
+    dpd_90_flag_review = False
+    if dpd_90 > 5:
+        policy_checks['dpd'] = f"❌ {dpd_90} instances of 90+ DPD (exceeds limit of 5)"
+        return {
+            'decision': "REJECT",
+            'reason': "Policy Gate: Severe delinquency > 5 instances of 90+ DPD",
+            'confidence': 0,
+            'class_probs': {'REJECT': 100},
+            'policy_checks': policy_checks,
+            'risk_score': 0,
+            'pd_percentage': 100.0,
+            'affordability_data': {}
+        }
+    elif dpd_90 > 1:
+        policy_checks['dpd'] = f"⚠️ {dpd_90} instances of 90+ DPD (2–5) → Review required"
+        dpd_90_flag_review = True
+    else:
+        policy_checks['dpd'] = f"✅ {dpd_90} instances of 90+ DPD (acceptable)"
+
+
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 100.0, 'affordability_data': {}}
     policy_checks['bureau'] = f"✅ Bureau Score {bureau_score}"
