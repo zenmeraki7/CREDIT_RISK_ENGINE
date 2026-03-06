@@ -10536,6 +10536,9 @@
 
 
 
+
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -12373,154 +12376,525 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
 def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: int,
                                pd_pct: float, application_id: str = None, source: str = 'stage1'):
     """
-    Append a minimal record to the in-session fairness log.
+    Append a record to the in-session fairness log.
     source = 'stage1' | 'stage2' | 'batch'
-    When Stage 2 completes it REPLACES the Stage 1 record for the same app_id
-    so the fairness dashboard always shows the FINAL binding decision.
+    Stage 2 entry REPLACES Stage 1 entry for same app_id (final binding decision wins).
     """
+    app_id = application_id or customer_data.get('application_id', '')
     record = {
         'ts':              datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'application_id':  application_id or customer_data.get('application_id', ''),
+        'application_id':  app_id,
         'source':          source,
         'decision':        decision,
-        'risk_score':      risk_score,
-        'pd_pct':          pd_pct,
+        'risk_score':      int(risk_score or 0),
+        'pd_pct':          float(pd_pct or 0),
         'gender':          customer_data.get('gender', 'Unknown'),
         'city_tier':       customer_data.get('city_tier', 'Unknown'),
         'employment_type': customer_data.get('employment_type', 'Unknown'),
-        'bureau_score':    customer_data.get('bureau_score', 0),
+        'bureau_score':    int(customer_data.get('bureau_score', 0) or 0),
+        'avg_salary_6m':   int(customer_data.get('avg_salary_6m', 0) or 0),
+        'loan_amount':     int(customer_data.get('loan_amount', 0) or 0),
+        'foir_pct':        float(customer_data.get('foir_percentage', 0) or 0),
+        'dpd_90':          int(customer_data.get('dpd_90_count_6m', 0) or 0),
         'age_band': (
             '24-30' if customer_data.get('age', 0) < 31 else
             '31-40' if customer_data.get('age', 0) < 41 else
             '41-50' if customer_data.get('age', 0) < 51 else '51+'
         ),
     }
+    # Replace Stage 1 entry with Stage 2 final for same app_id
+    if source == 'stage2' and app_id:
+        st.session_state.fairness_log = [
+            r for r in st.session_state.fairness_log
+            if not (r['application_id'] == app_id and r['source'] == 'stage1')
+        ]
     st.session_state.fairness_log.append(record)
 
 
 # =============================================================================
-# FAIRNESS MONITORING DASHBOARD
+# FAIRNESS MONITORING DASHBOARD  (v8.7 — Professional Edition)
 # =============================================================================
+def _dir_index(df_grp, group_col, overall_rate):
+    """
+    80% Rule / Four-Fifths Rule (EEOC standard).
+    Returns a list of dicts with DImpact Ratio per group.
+    Adverse impact flagged when ratio < 0.80 vs highest-approved group.
+    """
+    if df_grp.empty or overall_rate == 0:
+        return []
+    max_rate = df_grp['Approval Rate %'].max()
+    if max_rate == 0:
+        return []
+    rows = []
+    for _, row in df_grp.iterrows():
+        ratio = row['Approval Rate %'] / max_rate if max_rate > 0 else 1.0
+        rows.append({
+            'Group': row[group_col],
+            'Approval Rate': row['Approval Rate %'],
+            'DIR': round(ratio, 3),
+            'Status': '🔴 Adverse Impact' if ratio < 0.80 else
+                      ('⚠️ Borderline' if ratio < 0.90 else '✅ Compliant'),
+        })
+    return sorted(rows, key=lambda x: x['DIR'])
+
+
+def _chi2_pvalue(df, group_col):
+    """2×2 or N×2 chi-square test: decision ~ group."""
+    try:
+        from scipy.stats import chi2_contingency
+        ct = pd.crosstab(df[group_col], df['decision'])
+        chi2, p, dof, _ = chi2_contingency(ct)
+        return chi2, p, dof
+    except Exception:
+        return None, None, None
+
+
 def render_fairness_dashboard():
-    st.markdown('<p class="main-header">⚖️ Fairness Monitoring</p>', unsafe_allow_html=True)
+    # ── Header ────────────────────────────────────────────────────────────────
     st.markdown("""
-        <div class="info-box">
-            <strong>RBI Fair Lending Compliance Dashboard</strong><br>
-            Tracks approval rates across demographic groups to detect potential disparate impact.
-            <strong>Fairness is measured on the FINAL binding decision</strong> — Stage 2 outcome
-            is used when available; Stage 1 entries are replaced once Stage 2 completes.
-            Data is session-based — decisions accumulate as applications are processed.
+        <div style="background:linear-gradient(135deg,#1a365d 0%,#2d3748 100%);
+                    color:white;padding:1.5rem 2rem;border-radius:0.75rem;margin-bottom:1.5rem;">
+            <h2 style="margin:0;color:white;font-size:1.8rem;">⚖️ Fair Lending Compliance Dashboard</h2>
+            <p style="margin:0.4rem 0 0 0;opacity:0.85;font-size:0.95rem;">
+                RBI Digital Lending Guidelines 2022 · EEOC 80% Rule · Disparate Impact Monitoring
+            </p>
         </div>
     """, unsafe_allow_html=True)
 
-    log = st.session_state.get('fairness_log', [])
-
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🗑️ Clear Log", use_container_width=True):
+    # ── Controls row ─────────────────────────────────────────────────────────
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([2, 1, 1, 1])
+    with ctrl1:
+        st.markdown("**Data scope:** Session-based. Stage 2 final decision supersedes Stage 1 for same application.")
+    with ctrl2:
+        source_filter = st.selectbox("Source filter", ["All", "Stage 1", "Stage 2", "Batch"],
+                                     label_visibility="collapsed")
+    with ctrl3:
+        pass
+    with ctrl4:
+        if st.button("🗑️ Clear All Data", use_container_width=True):
             st.session_state.fairness_log = []
             st.rerun()
 
+    log = st.session_state.get('fairness_log', [])
+
+    # ── Empty state ──────────────────────────────────────────────────────────
     if not log:
-        st.info("ℹ️ No decisions logged yet. Process applications from the Assessment page.")
-        st.markdown("### 📊 What will appear here:")
         st.markdown("""
-        - **Approval rate by Gender** — checks for gender bias
-        - **Approval rate by City Tier** — checks Tier 1 vs Tier 3 vs Rural equity
-        - **Approval rate by Age Band** — identifies age discrimination
-        - **Approval rate by Employment Type** — salaried vs self-employed parity
-        """)
+            <div style="background:#f7fafc;border:2px dashed #cbd5e0;border-radius:0.75rem;
+                        padding:3rem;text-align:center;margin:2rem 0;">
+                <div style="font-size:3rem;margin-bottom:1rem;">⚖️</div>
+                <h3 style="color:#2d3748;margin:0 0 0.5rem 0;">No Decisions Logged Yet</h3>
+                <p style="color:#718096;margin:0 0 1.5rem 0;">
+                    Process applications from the Assessment page to begin fairness monitoring.
+                </p>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;max-width:700px;margin:0 auto;text-align:left;">
+                    <div style="background:white;padding:1rem;border-radius:0.5rem;border-left:4px solid #667eea;">
+                        <strong style="color:#667eea;">👥 Gender</strong><br>
+                        <span style="font-size:0.82rem;color:#718096;">Male vs Female approval parity</span>
+                    </div>
+                    <div style="background:white;padding:1rem;border-radius:0.5rem;border-left:4px solid #48bb78;">
+                        <strong style="color:#38a169;">🏙️ City Tier</strong><br>
+                        <span style="font-size:0.82rem;color:#718096;">Metro vs Rural equity</span>
+                    </div>
+                    <div style="background:white;padding:1rem;border-radius:0.5rem;border-left:4px solid #ed8936;">
+                        <strong style="color:#c05621;">📅 Age Band</strong><br>
+                        <span style="font-size:0.82rem;color:#718096;">Age discrimination check</span>
+                    </div>
+                    <div style="background:white;padding:1rem;border-radius:0.5rem;border-left:4px solid #f56565;">
+                        <strong style="color:#c53030;">💼 Employment</strong><br>
+                        <span style="font-size:0.82rem;color:#718096;">Salaried vs self-employed parity</span>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
         return
 
-    df = pd.DataFrame(log)
-    df['approved'] = (df['decision'] == 'APPROVE').astype(int)
+    # ── Build dataframe ──────────────────────────────────────────────────────
+    df_full = pd.DataFrame(log)
+    df_full['approved']  = (df_full['decision'] == 'APPROVE').astype(int)
+    df_full['reviewed']  = (df_full['decision'] == 'REVIEW').astype(int)
+    df_full['rejected']  = (df_full['decision'] == 'REJECT').astype(int)
+
+    # Source filter
+    src_map = {"All": None, "Stage 1": "stage1", "Stage 2": "stage2", "Batch": "batch"}
+    if src_map[source_filter]:
+        df = df_full[df_full['source'] == src_map[source_filter]].copy()
+    else:
+        df = df_full.copy()
+
+    if df.empty:
+        st.warning(f"No records for source filter: {source_filter}")
+        return
+
     n = len(df)
+    n_approve = int(df['approved'].sum())
+    n_review  = int(df['reviewed'].sum())
+    n_reject  = int(df['rejected'].sum())
+    overall_rate = df['approved'].mean() * 100
 
-    if 'source' in df.columns:
-        n_s2    = int((df['source'] == 'stage2').sum())
-        n_s1    = int((df['source'] == 'stage1').sum())
-        n_batch = int((df['source'] == 'batch').sum())
-        st.caption(f"📌 {n_s2} Stage 2 (final) · {n_s1} Stage 1 (screening) · {n_batch} Batch")
+    # ── Executive KPI strip ──────────────────────────────────────────────────
+    st.markdown("### 📊 Executive Summary")
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Total Decisions",  n)
+    k2.metric("✅ Approved",       n_approve,  f"{overall_rate:.1f}%")
+    k3.metric("⚠️ Review",         n_review,   f"{n_review/n*100:.1f}%")
+    k4.metric("❌ Rejected",       n_reject,   f"{n_reject/n*100:.1f}%")
+    k5.metric("Avg Risk Score",   f"{df['risk_score'].mean():.0f}")
+    k6.metric("Avg PD %",         f"{df['pd_pct'].mean():.2f}%")
+
+    # ── Compliance alert banner ──────────────────────────────────────────────
+    all_dir_issues = []
+    for col, label in [('gender','Gender'), ('city_tier','City Tier'),
+                       ('age_band','Age Band'), ('employment_type','Employment')]:
+        if col in df.columns and df[col].nunique() > 1:
+            grp = df.groupby(col).agg(
+                Total=('decision','count'), Approved=('approved','sum')).reset_index()
+            grp['Approval Rate %'] = (grp['Approved'] / grp['Total'] * 100).round(1)
+            dirs = _dir_index(grp, col, overall_rate)
+            for d in dirs:
+                if d['DIR'] < 0.80:
+                    all_dir_issues.append(f"**{label} → {d['Group']}** DIR={d['DIR']:.2f}")
+
+    if all_dir_issues:
+        st.markdown(f"""
+            <div style="background:#fff5f5;border:2px solid #fc8181;border-radius:0.5rem;
+                        padding:1rem 1.25rem;margin:1rem 0;">
+                <strong style="color:#c53030;">🚨 ADVERSE IMPACT ALERT (80% Rule Breach)</strong><br>
+                <span style="color:#742a2a;font-size:0.9rem;">
+                    {' · '.join(all_dir_issues)}<br>
+                    Immediate review required per RBI fair lending guidelines.
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <div style="background:#f0fff4;border:2px solid #68d391;border-radius:0.5rem;
+                        padding:0.75rem 1.25rem;margin:1rem 0;">
+                <strong style="color:#276749;">✅ No Adverse Impact Detected</strong>
+                <span style="color:#2f855a;font-size:0.9rem;"> — All groups above 80% DIR threshold.</span>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("Total Decisions", n)
-    with c2: st.metric("Approvals", int(df['approved'].sum()), f"{df['approved'].mean()*100:.1f}%")
-    with c3: st.metric("Reviews", int((df['decision']=='REVIEW').sum()))
-    with c4: st.metric("Rejections", int((df['decision']=='REJECT').sum()))
 
-    st.markdown("---")
-    tab1, tab2, tab3, tab4 = st.tabs(["👥 Gender", "🏙️ City Tier", "📅 Age Band", "💼 Employment"])
+    # ── Main analysis tabs ───────────────────────────────────────────────────
+    tab_overview, tab_gender, tab_city, tab_age, tab_emp, tab_deep, tab_export = st.tabs([
+        "🗺️ Overview", "👥 Gender", "🏙️ City Tier",
+        "📅 Age Band", "💼 Employment", "🔬 Deep Analysis", "📥 Export"
+    ])
 
-    COLOR_MAP = {'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'}
+    def _group_analysis(tab, group_col, dim_label, color_seq=None):
+        """Full analysis panel for one demographic dimension."""
+        with tab:
+            if group_col not in df.columns or df[group_col].nunique() < 2:
+                st.info(f"Need 2+ distinct {dim_label} values. Ensure the field is filled on every application.")
+                return
 
-    def _approval_bar(group_col, title):
-        grp = df.groupby(group_col).agg(
-            Total=('decision', 'count'),
-            Approved=('approved', 'sum'),
-            Avg_Risk=('risk_score', 'mean'),
-            Avg_PD=('pd_pct', 'mean'),
-        ).reset_index()
-        grp['Approval Rate %'] = (grp['Approved'] / grp['Total'] * 100).round(1)
-        grp['Avg Risk Score']  = grp['Avg_Risk'].round(1)
-        grp['Avg PD %']        = grp['Avg_PD'].round(2)
-        overall_rate = df['approved'].mean() * 100
+            grp = df.groupby(group_col).agg(
+                Total=('decision','count'),
+                Approved=('approved','sum'),
+                Reviewed=('reviewed','sum'),
+                Rejected=('rejected','sum'),
+                Avg_Bureau=('bureau_score','mean'),
+                Avg_Risk=('risk_score','mean'),
+                Avg_PD=('pd_pct','mean'),
+                Avg_Income=('avg_salary_6m','mean'),
+            ).reset_index()
+            grp['Approval Rate %']  = (grp['Approved'] / grp['Total'] * 100).round(1)
+            grp['Rejection Rate %'] = (grp['Rejected'] / grp['Total'] * 100).round(1)
+            grp['Review Rate %']    = (grp['Reviewed'] / grp['Total'] * 100).round(1)
+            grp['Avg Bureau Score'] = grp['Avg_Bureau'].round(0)
+            grp['Avg Risk Score']   = grp['Avg_Risk'].round(1)
+            grp['Avg PD %']         = grp['Avg_PD'].round(2)
+            grp['Avg Income ₹']     = grp['Avg_Income'].round(0)
+            dir_rows = _dir_index(grp, group_col, overall_rate)
+            chi2, pval, dof = _chi2_pvalue(df, group_col)
 
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            fig = px.bar(grp, x=group_col, y='Approval Rate %', title=title,
-                         text='Approval Rate %', color='Approval Rate %',
-                         color_continuous_scale=['#f56565', '#ed8936', '#48bb78'],
-                         range_color=[0, 100])
-            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10),
-                              coloraxis_showscale=False, paper_bgcolor='white', plot_bgcolor='white',
-                              yaxis={'range': [0, 110], 'gridcolor': '#e2e8f0'})
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            st.markdown("**Summary Table**")
-            display_df = grp[[group_col, 'Total', 'Approval Rate %', 'Avg Risk Score', 'Avg PD %']].copy()
-            def _flag(rate):
+            # ── Stat significance badge ──────────────────────────────────
+            if pval is not None:
+                sig_color = "#c53030" if pval < 0.05 else "#276749"
+                sig_label = f"χ²={chi2:.2f} · p={pval:.4f} · {'⚠️ Statistically Significant (p<0.05)' if pval < 0.05 else '✅ Not Significant (p≥0.05)'}"
+                st.markdown(f"""
+                    <div style="background:#edf2f7;border-left:4px solid {sig_color};
+                                padding:0.5rem 1rem;border-radius:0.25rem;margin-bottom:1rem;
+                                font-size:0.88rem;color:{sig_color};">
+                        <strong>Chi-Square Test:</strong> {sig_label}
+                    </div>
+                """, unsafe_allow_html=True)
+
+            # ── Charts row ───────────────────────────────────────────────
+            ch1, ch2 = st.columns(2)
+            with ch1:
+                cs = color_seq or ['#48bb78','#ed8936','#f56565']
+                fig_bar = go.Figure()
+                fig_bar.add_trace(go.Bar(
+                    name='Approved', x=grp[group_col], y=grp['Approved'],
+                    marker_color='#48bb78', text=grp['Approval Rate %'].apply(lambda x: f"{x:.1f}%"),
+                    textposition='outside'
+                ))
+                fig_bar.add_trace(go.Bar(
+                    name='Review', x=grp[group_col], y=grp['Reviewed'], marker_color='#ed8936'))
+                fig_bar.add_trace(go.Bar(
+                    name='Rejected', x=grp[group_col], y=grp['Rejected'], marker_color='#f56565'))
+                fig_bar.add_hline(y=overall_rate/100*grp['Total'].mean(), line_dash='dash',
+                                  line_color='#718096', annotation_text=f"Overall avg",
+                                  annotation_position='top right')
+                fig_bar.update_layout(
+                    barmode='stack', title=f"Decision Distribution by {dim_label}",
+                    height=380, paper_bgcolor='white', plot_bgcolor='white',
+                    legend=dict(orientation='h', y=-0.15),
+                    margin=dict(l=10,r=10,t=40,b=10),
+                    yaxis={'gridcolor':'#e2e8f0'})
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            with ch2:
+                fig_dir = go.Figure()
+                dir_df = pd.DataFrame(dir_rows)
+                bar_colors = ['#f56565' if d['DIR'] < 0.80 else
+                              ('#ed8936' if d['DIR'] < 0.90 else '#48bb78')
+                              for d in dir_rows]
+                fig_dir.add_trace(go.Bar(
+                    x=dir_df['Group'], y=dir_df['DIR'],
+                    marker_color=bar_colors,
+                    text=dir_df['DIR'].apply(lambda x: f"{x:.2f}"),
+                    textposition='outside'
+                ))
+                fig_dir.add_hline(y=0.80, line_dash='dash', line_color='#f56565',
+                                  annotation_text="80% Rule Threshold",
+                                  annotation_position='top right')
+                fig_dir.add_hline(y=0.90, line_dash='dot', line_color='#ed8936',
+                                  annotation_text="90% Caution Line",
+                                  annotation_position='bottom right')
+                fig_dir.update_layout(
+                    title=f"Disparate Impact Ratio (DIR) by {dim_label}",
+                    yaxis=dict(range=[0, 1.15], title='DIR (1.0 = perfect parity)',
+                               gridcolor='#e2e8f0'),
+                    height=380, paper_bgcolor='white', plot_bgcolor='white',
+                    margin=dict(l=10,r=10,t=40,b=10))
+                st.plotly_chart(fig_dir, use_container_width=True)
+
+            # ── Detailed metrics table ───────────────────────────────────
+            st.markdown(f"**📋 Detailed Metrics Table — {dim_label}**")
+            display_cols = [group_col, 'Total', 'Approved', 'Reviewed', 'Rejected',
+                            'Approval Rate %', 'Rejection Rate %',
+                            'Avg Bureau Score', 'Avg Risk Score', 'Avg PD %', 'Avg Income ₹']
+            disp = grp[display_cols].copy()
+
+            # Colour-code approval rate column
+            def _rate_flag(row):
+                rate = row['Approval Rate %']
                 diff = rate - overall_rate
-                if abs(diff) > 15: return f"{'🔴' if diff < 0 else '🟢'} {rate:.1f}%"
-                return f"✅ {rate:.1f}%"
-            display_df['Approval Rate %'] = display_df['Approval Rate %'].apply(_flag)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-            st.caption(f"Overall: **{overall_rate:.1f}%** | 🔴 = >15pp below avg (bias risk) | 🟢 = >15pp above avg")
+                icon = '🔴' if diff < -15 else ('🟢' if diff > 15 else '✅')
+                return f"{icon} {rate:.1f}%"
+            disp['Approval Rate %'] = disp.apply(_rate_flag, axis=1)
 
-    with tab1:
+            st.dataframe(disp, use_container_width=True, hide_index=True)
+
+            # ── DIR compliance table ─────────────────────────────────────
+            st.markdown(f"**⚖️ EEOC 80% Rule — Disparate Impact Assessment**")
+            dir_display = pd.DataFrame(dir_rows)
+            if not dir_display.empty:
+                st.dataframe(dir_display, use_container_width=True, hide_index=True)
+            st.caption(
+                f"Overall approval rate: **{overall_rate:.1f}%** · "
+                f"DIR = group rate ÷ highest group rate · "
+                f"🔴 DIR < 0.80 = Adverse Impact · ⚠️ DIR 0.80–0.90 = Borderline · ✅ DIR > 0.90 = Compliant"
+            )
+
+    # ── Tab: Overview ────────────────────────────────────────────────────────
+    with tab_overview:
+        st.markdown("### 🗺️ Portfolio Heatmap")
+
+        ov1, ov2 = st.columns(2)
+        with ov1:
+            # Decision mix donut
+            fig_donut = go.Figure(go.Pie(
+                labels=['Approved','Review','Rejected'],
+                values=[n_approve, n_review, n_reject],
+                hole=0.55,
+                marker_colors=['#48bb78','#ed8936','#f56565'],
+                textinfo='label+percent', textfont_size=13
+            ))
+            fig_donut.update_layout(
+                title="Overall Decision Distribution", height=320,
+                paper_bgcolor='white', margin=dict(l=10,r=10,t=40,b=10),
+                showlegend=False,
+                annotations=[dict(text=f"<b>{n}</b><br>Total", x=0.5, y=0.5,
+                                  font_size=16, showarrow=False)]
+            )
+            st.plotly_chart(fig_donut, use_container_width=True)
+
+        with ov2:
+            # Risk score distribution by decision
+            fig_box = px.box(df, x='decision', y='risk_score', color='decision',
+                             color_discrete_map={'APPROVE':'#48bb78','REVIEW':'#ed8936','REJECT':'#f56565'},
+                             title='Risk Score Distribution by Decision',
+                             points='outliers')
+            fig_box.update_layout(height=320, paper_bgcolor='white', plot_bgcolor='white',
+                                  showlegend=False, margin=dict(l=10,r=10,t=40,b=10),
+                                  yaxis={'gridcolor':'#e2e8f0'})
+            st.plotly_chart(fig_box, use_container_width=True)
+
+        # Timeline if enough data
+        if len(df) >= 3 and 'ts' in df.columns:
+            st.markdown("**📈 Approval Rate Over Time**")
+            df_time = df.copy()
+            df_time['ts'] = pd.to_datetime(df_time['ts'])
+            df_time = df_time.sort_values('ts')
+            df_time['cumulative_rate'] = df_time['approved'].expanding().mean() * 100
+            fig_time = px.line(df_time, x='ts', y='cumulative_rate',
+                               title='Cumulative Approval Rate Over Time',
+                               labels={'ts':'Time','cumulative_rate':'Approval Rate %'})
+            fig_time.add_hline(y=overall_rate, line_dash='dash', line_color='#718096',
+                               annotation_text='Current avg')
+            fig_time.update_layout(height=280, paper_bgcolor='white', plot_bgcolor='white',
+                                   margin=dict(l=10,r=10,t=40,b=10),
+                                   yaxis={'range':[0,105],'gridcolor':'#e2e8f0'})
+            st.plotly_chart(fig_time, use_container_width=True)
+
+        # 4-dimension summary grid
+        st.markdown("**📊 Approval Rate Summary — All Dimensions**")
+        summary_rows = []
+        for col, lbl in [('gender','Gender'),('city_tier','City Tier'),
+                         ('age_band','Age Band'),('employment_type','Employment')]:
+            if col in df.columns and df[col].nunique() > 1:
+                grp = df.groupby(col).agg(
+                    Total=('decision','count'), Approved=('approved','sum')).reset_index()
+                grp['Rate'] = (grp['Approved']/grp['Total']*100).round(1)
+                max_r, min_r = grp['Rate'].max(), grp['Rate'].min()
+                gap = max_r - min_r
+                chi2, pval, _ = _chi2_pvalue(df, col)
+                sig = '⚠️ Sig.' if (pval is not None and pval < 0.05) else '✅ OK'
+                max_grp = grp.loc[grp['Rate'].idxmax(), col]
+                min_grp = grp.loc[grp['Rate'].idxmin(), col]
+                dir_val = min_r / max_r if max_r > 0 else 1.0
+                summary_rows.append({
+                    'Dimension': lbl,
+                    'Highest Approval': f"{max_grp} ({max_r:.1f}%)",
+                    'Lowest Approval':  f"{min_grp} ({min_r:.1f}%)",
+                    'Gap (pp)': f"{gap:.1f}",
+                    'Min DIR': f"{dir_val:.2f}",
+                    '80% Rule': '🔴 BREACH' if dir_val < 0.80 else ('⚠️ Watch' if dir_val < 0.90 else '✅ Pass'),
+                    'Stat Sig': sig,
+                })
+        if summary_rows:
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+    # ── Dimension tabs ───────────────────────────────────────────────────────
+    _group_analysis(tab_gender, 'gender',          'Gender')
+    _group_analysis(tab_city,   'city_tier',        'City Tier')
+    _group_analysis(tab_age,    'age_band',         'Age Band')
+    _group_analysis(tab_emp,    'employment_type',  'Employment Type')
+
+    # ── Deep Analysis tab ────────────────────────────────────────────────────
+    with tab_deep:
+        st.markdown("### 🔬 Intersectional & Risk Factor Analysis")
+
+        d1, d2 = st.columns(2)
+        with d1:
+            x_axis = st.selectbox("X axis", ['bureau_score','avg_salary_6m','risk_score','pd_pct','loan_amount'], key='fa_x')
+        with d2:
+            color_by = st.selectbox("Colour by", ['gender','city_tier','age_band','employment_type'], key='fa_c')
+
+        fig_scatter = px.scatter(
+            df, x=x_axis, y='risk_score', color=color_by,
+            symbol='decision', size='loan_amount',
+            hover_data=['application_id','decision','bureau_score','pd_pct'],
+            title=f"{x_axis} vs Risk Score  |  colour={color_by}  |  shape=Decision",
+            opacity=0.75
+        )
+        fig_scatter.update_layout(height=420, paper_bgcolor='white', plot_bgcolor='white',
+                                  margin=dict(l=10,r=10,t=50,b=10),
+                                  xaxis={'gridcolor':'#e2e8f0'},
+                                  yaxis={'gridcolor':'#e2e8f0'})
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+        # Intersectional heatmap: gender × city_tier approval rate
+        if df['gender'].nunique() > 1 and df['city_tier'].nunique() > 1:
+            st.markdown("**🗺️ Intersectional Heatmap: Gender × City Tier Approval Rate**")
+            pivot = df.pivot_table(values='approved', index='gender',
+                                   columns='city_tier', aggfunc='mean') * 100
+            fig_heat = px.imshow(pivot.round(1), text_auto=True,
+                                 color_continuous_scale=['#f56565','#feebc8','#48bb78'],
+                                 range_color=[0, 100],
+                                 title='Approval Rate % — Gender × City Tier')
+            fig_heat.update_layout(height=300, margin=dict(l=10,r=10,t=40,b=10))
+            st.plotly_chart(fig_heat, use_container_width=True)
+
+        # Bureau score vs approval by gender
         if df['gender'].nunique() > 1:
-            _approval_bar('gender', 'Approval Rate by Gender')
-        else:
-            st.info("Need 2+ gender values to show chart. Ensure Gender field is filled on the form.")
+            st.markdown("**📊 Bureau Score Distribution by Gender & Decision**")
+            fig_violin = px.violin(df, x='gender', y='bureau_score', color='decision',
+                                   box=True, points='outliers',
+                                   color_discrete_map={'APPROVE':'#48bb78','REVIEW':'#ed8936','REJECT':'#f56565'},
+                                   title='Bureau Score Distribution — Gender × Decision')
+            fig_violin.update_layout(height=360, paper_bgcolor='white', plot_bgcolor='white',
+                                     margin=dict(l=10,r=10,t=40,b=10),
+                                     yaxis={'gridcolor':'#e2e8f0'})
+            st.plotly_chart(fig_violin, use_container_width=True)
 
-    with tab2:
-        if df['city_tier'].nunique() > 1:
-            _approval_bar('city_tier', 'Approval Rate by City Tier')
-        else:
-            st.info("Need 2+ city tier values. Ensure City Tier field is filled.")
+        st.markdown("**📋 Full Decision Log**")
+        st.dataframe(df.sort_values('ts', ascending=False), use_container_width=True, hide_index=True)
 
-    with tab3:
-        if df['age_band'].nunique() > 1:
-            _approval_bar('age_band', 'Approval Rate by Age Band')
-        else:
-            st.info("Need decisions across multiple age bands (24-30, 31-40, 41-50, 51+).")
+    # ── Export tab ───────────────────────────────────────────────────────────
+    with tab_export:
+        st.markdown("### 📥 Export Fairness Reports")
 
-    with tab4:
-        if df['employment_type'].nunique() > 1:
-            _approval_bar('employment_type', 'Approval Rate by Employment Type')
-        else:
-            st.info("Need 2+ employment types in decisions.")
+        ex1, ex2 = st.columns(2)
+        with ex1:
+            st.markdown("**Decision Log (CSV)**")
+            st.caption("Full decision log with all demographic fields.")
+            st.download_button(
+                "📥 Download Decision Log (CSV)",
+                data=df.to_csv(index=False),
+                file_name=f"fairness_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv", use_container_width=True
+            )
 
-    st.markdown("---")
-    st.markdown("### 📥 Export Fairness Report")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button("📥 Download Decision Log (CSV)", data=df.to_csv(index=False),
-                           file_name=f"fairness_log_{datetime.now().strftime('%Y%m%d')}.csv",
-                           mime="text/csv", use_container_width=True)
-    with col2:
-        st.caption("⚠️ This log is session-based and resets when the app restarts.")
+        with ex2:
+            st.markdown("**Compliance Summary (CSV)**")
+            st.caption("DIR scores and 80% Rule status for all dimensions.")
+            comp_rows = []
+            for col, lbl in [('gender','Gender'),('city_tier','City Tier'),
+                             ('age_band','Age Band'),('employment_type','Employment')]:
+                if col in df.columns and df[col].nunique() > 1:
+                    grp2 = df.groupby(col).agg(
+                        Total=('decision','count'), Approved=('approved','sum')).reset_index()
+                    grp2['Approval Rate %'] = (grp2['Approved']/grp2['Total']*100).round(1)
+                    for d in _dir_index(grp2, col, overall_rate):
+                        chi2, pval, _ = _chi2_pvalue(df, col)
+                        comp_rows.append({
+                            'Dimension': lbl, 'Group': d['Group'],
+                            'Approval Rate %': d['Approval Rate'],
+                            'DIR': d['DIR'], 'Status': d['Status'],
+                            'Chi2 p-value': round(pval, 4) if pval else 'N/A',
+                            'Generated': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                        })
+            if comp_rows:
+                comp_df = pd.DataFrame(comp_rows)
+                st.download_button(
+                    "📥 Download Compliance Report (CSV)",
+                    data=comp_df.to_csv(index=False),
+                    file_name=f"fairness_compliance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv", use_container_width=True
+                )
+            else:
+                st.info("Need 2+ groups per dimension to generate compliance report.")
+
+        st.markdown("---")
+        st.markdown("**📋 JSON Export (full log)**")
+        st.download_button(
+            "📥 Download Full Log (JSON)",
+            data=json.dumps(log, indent=2, default=str),
+            file_name=f"fairness_full_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json", use_container_width=True
+        )
+
+        st.markdown("---")
+        st.info(
+            "⚠️ **Session-based data** — this log resets when the app restarts. "
+            "For production use, persist the fairness log to a database and run periodic DIR audits."
+        )
 
 # =============================================================================
 # SIDEBAR
