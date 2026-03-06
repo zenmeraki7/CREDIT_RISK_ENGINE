@@ -136,7 +136,6 @@
 
 
 
-
 """
 Reason Code Generation System
 Generates human-readable explanations for decisions.
@@ -307,7 +306,7 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
         if dpd_30 >= 1 and dpd_90 == 0:
             reasons.append(REVIEW_REASONS['moderate_dpd'].format(dpd=dpd_30))
 
-        # New: moderate 90+ DPD (2–5 instances)
+        # New: moderate 90+ DPD (2–5 instances) – triggers REVIEW
         if 1 < dpd_90 <= 5:
             reasons.append(REVIEW_REASONS['moderate_90_dpd'].format(dpd=dpd_90))
 
@@ -321,7 +320,7 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
             reasons.append(REVIEW_REASONS['high_util_review'].format(util=credit_util))
         stability = customer_data.get('salary_stability_flag', 'STABLE')
         if stability in ('MODERATE', 'UNSTABLE'):
-            reasons.append(REVIEW_REASONS['unstable_income'])
+            reasons.append(REVIEW_REASONS['unstable_income'))
         if first_prod and first_prod not in ('None', loan_type):
             reasons.append(REVIEW_REASONS['mixed_product'])
 
