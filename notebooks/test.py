@@ -10537,7 +10537,6 @@
 
 
 
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -12887,12 +12886,14 @@ elif page == "👤 Assessment":
                                   f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": "pass" if kyc_verified else "fail"})
             with col2:
                 bureau_pass = bureau_score >= 550
-                dpd_pass = dpd_90_6m == 0
+                # DPD tiered gate: 0-1=pass, 2-5=review, >5=fail
+                dpd_pass = dpd_90_6m <= 1
+                dpd_warn = 1 < dpd_90_6m <= 5
                 render_info_card("Credit Bureau", "🏦",
                                  {f"Bureau Score: {bureau_score}": "", f"DPD 90+: {dpd_90_6m}": "",
                                   f"Utilization: {credit_utilization}%": ""},
                                  {f"Bureau Score: {bureau_score}": "pass" if bureau_pass else "fail",
-                                  f"DPD 90+: {dpd_90_6m}": "pass" if dpd_pass else "fail",
+                                  f"DPD 90+: {dpd_90_6m}": "pass" if dpd_pass else ("warning" if dpd_warn else "fail"),
                                   f"Utilization: {credit_utilization}%": "pass" if credit_utilization <= 40 else "warning"})
             with col3:
                 render_info_card("Affordability", "💰",
@@ -12962,7 +12963,7 @@ elif page == "👤 Assessment":
                 'risk_score': decision_data.get('risk_score', 0),
                 'pd_percentage': decision_data.get('pd_percentage', 0),
                 'confidence': round(decision_data.get('confidence', 0), 2),
-                'model_version': '8.4',
+                'model_version': '8.7',
                 'reason_codes': reasons,
                 'policy_checks': decision_data.get('policy_checks', {}),
                 'affordability': decision_data.get('affordability_data', {}),
@@ -12975,6 +12976,7 @@ elif page == "👤 Assessment":
                     'foir': foir,
                     'foir_adjustment': foir_to_pd_adjustment(foir),
                     'employment_adjustment': employment_stability_to_pd_adjustment(employment_type, employment_tenure, business_vintage),
+                    'inquiry_adjustment': inquiry_pattern_to_pd_adjustment(recent_inquiries),
                     'ml_adjustment': ml_confidence_to_pd_adjustment(decision_data.get('confidence', 0), decision_data.get('decision', 'ERROR')),
                     'final_pd': decision_data.get('pd_percentage', 0)
                 }
