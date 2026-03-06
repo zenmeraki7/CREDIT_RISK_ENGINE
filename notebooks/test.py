@@ -5275,6 +5275,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -5855,20 +5867,58 @@ def calculate_final_risk_score(bureau_score, ml_confidence, foir,
 
 # =============================================================================
 # CATEGORICAL FLAG INFERENCE FROM CIBIL DATA
-# FIX v8.4: Derives all 5 categorical flags from numeric CIBIL fields.
-# Thresholds calibrated against train_60k_rule_accepted.csv (60,000 rows).
+# v8.5: Dual-dataset calibration.
 #
-# Distribution summary from training data:
-#   payment_discipline_flag : GOOD 99.9%,  MODERATE 0.02%, POOR 0.04%
-#   cashflow_health         : MODERATE 90%, HEALTHY 8.8%, STRESSED 0.8%, STABLE 0.4%
-#   liquidity_flag          : LOW 87.7%,   ADEQUATE 11.9%, MODERATE 0.4%
-#   bureau_risk_flag        : LOW 97.9%,   HIGH 1.3%,      MEDIUM 0.75%
-#   salary_stability_flag   : MODERATE 85.8%, STABLE 12.1%, UNSTABLE 2.1%
+# Dataset A — train_60k_rule_accepted.csv (bank-statement enriched):
+#   Has: net_cash_surplus_6m, inward_bounce_count_3m, salary_missing_months
+#   payment_discipline: GOOD 99.9%,  MODERATE 0.02%, POOR 0.04%
+#   cashflow_health   : MODERATE 90%, HEALTHY 8.8%, STRESSED 0.8%, STABLE 0.4%
+#   liquidity_flag    : LOW 87.7%,   ADEQUATE 11.9%, MODERATE 0.4%
+#   bureau_risk_flag  : LOW 97.9%,   HIGH 1.3%,      MEDIUM 0.75%
+#   salary_stability  : MODERATE 85.8%, STABLE 12.1%, UNSTABLE 2.1%
+#
+# Dataset B — External_Cibil_Dataset.xlsx (bureau-only, 51,336 rows):
+#   Has: num_times_30p_dpd, num_times_60p_dpd, num_lss, num_dbt,
+#        NETMONTHLYINCOME, Time_With_Curr_Empr, Credit_Score
+#   NO:  net_cash_surplus_6m, inward_bounce_count_3m, salary_missing_months
+#   Income median: ₹23,000 (vs ₹50,000 in Dataset A — very different scale)
+#   payment_discipline: POOR 10.5%, MODERATE 5.1%, GOOD 84.4%
+#   bureau_risk_flag  : HIGH 5.0%,  MEDIUM 10.3%, LOW 84.7%
+#   salary_stability  : UNSTABLE 0.04%, STABLE 11.2%, MODERATE 88.8%
+#   Tier mapping      : P1(score 701+), P2(669-700), P3(subprime), P4(high risk)
+#
+# Auto-detection: if 'NETMONTHLYINCOME' key present → Dataset B path (bureau-only).
+#                 Otherwise → Dataset A path (bank-statement enriched).
 # =============================================================================
+def _infer_surplus_from_cibil(score: int, dpd_60: int, dpd_30: int, income: float) -> float:
+    """
+    Estimate net cash surplus when no bank statement data is available.
+    Used for External_Cibil_Dataset (bureau-only) OCR path.
+
+    Calibrated against External_Cibil_Dataset tier distributions:
+      - Score >= 700, clean DPD  -> income likely covers expenses  -> +30% income
+      - Score 650-699, clean DPD -> borderline                      -> +10% income
+      - Score < 650 OR 60+ DPD   -> stressed                        -> -20% income
+      - 60+ DPD >= 3             -> severe stress                   -> -50% income
+    """
+    if dpd_60 >= 3:
+        return income * -0.5
+    elif score < 650 or dpd_60 >= 1:
+        return income * -0.2
+    elif score < 700:
+        return income * 0.1
+    else:
+        return income * 0.3
+
+
 def infer_categorical_flags(extraction_result: dict) -> dict:
     """
-    Convert numeric CIBIL extraction fields into the 5 categorical flags
-    used by the Stage 1 assessment form.
+    Convert numeric CIBIL fields into the 5 categorical flags used by the
+    Stage 1 assessment form.
+
+    Automatically detects whether this is a bank-statement-enriched result
+    (Dataset A / train_60k) or a bureau-only result (Dataset B / External CIBIL)
+    and applies the appropriate calibrated thresholds for each.
 
     Args:
         extraction_result: dict returned by extract_cibil_from_pdf()
@@ -5877,74 +5927,148 @@ def infer_categorical_flags(extraction_result: dict) -> dict:
         dict with keys: payment_discipline_flag, cashflow_health,
                         liquidity_flag, bureau_risk_flag, salary_stability_flag
     """
-    dpd_90      = int(extraction_result.get('dpd_90_count_6m',   0) or 0)
-    dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
-    bounces     = int(extraction_result.get('inward_bounce_count_3m', 0) or 0)
-    missing     = int(extraction_result.get('salary_missing_months',  0) or 0)
-    written_off = int(extraction_result.get('written_off_count', 0) or 0)
-    hard_reject = int(extraction_result.get('hard_reject_flag',  0) or 0)
+    # ── Common fields (present in both datasets) ─────────────────────
     score       = int(extraction_result.get('Credit_Score', 700) or 700)
-    cc_util     = float(extraction_result.get('CC_utilization', 0.35) or 0.35)
-    # Accept either key name for net surplus
-    surplus = float(
-        extraction_result.get('net_cash_surplus_6m')
-        or extraction_result.get('net_surplus')
-        or -50_000
+    dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
+    dpd_60      = int(extraction_result.get('num_times_60p_dpd', 0) or 0)
+    written_off = int(extraction_result.get('num_lss', 0) or
+                      extraction_result.get('written_off_count', 0) or 0)
+    doubtful    = int(extraction_result.get('num_dbt', 0) or 0)
+    cc_util_raw = extraction_result.get('CC_utilization', 0) or 0
+    # Sentinel -99999 → 0 (no credit card on file)
+    cc_util     = float(cc_util_raw) if cc_util_raw > 0 else 0.0
+    income      = float(extraction_result.get('NETMONTHLYINCOME', 0) or
+                        extraction_result.get('avg_salary_6m', 50_000) or 50_000)
+    tenure      = int(extraction_result.get('Time_With_Curr_Empr', 24) or 24)
+
+    # ── Detect dataset type ──────────────────────────────────────────
+    # Dataset B (External CIBIL) uses NETMONTHLYINCOME key and lacks bank-stmt fields.
+    # Dataset A (train_60k) uses avg_salary_6m and HAS surplus/bounce/missing.
+    is_bureau_only = (
+        'NETMONTHLYINCOME' in extraction_result
+        and 'net_cash_surplus_6m' not in extraction_result
+        and 'net_surplus' not in extraction_result
     )
 
-    # ── 1. payment_discipline_flag ───────────────────────────────────
-    # Training data: POOR/MODERATE rows have inward_bounce mean ~1.0.
-    # GOOD rows have bounce mean = 0.008. DPD 90+ strongly signals POOR.
-    if dpd_90 >= 1 or bounces >= 2:
-        payment_discipline = 'POOR'
-    elif bounces == 1 or dpd_30 >= 3:
-        payment_discipline = 'MODERATE'
-    else:
-        payment_discipline = 'GOOD'
+    if is_bureau_only:
+        # ── DATASET B PATH (External_Cibil_Dataset) ─────────────────
+        # Income median ₹23k, score range 469-811, bureau fields only.
+        # num_times_60p_dpd used as dpd_90 proxy (60+ includes 90+ DPD).
 
-    # ── 2. cashflow_health ───────────────────────────────────────────
-    # Training data: HEALTHY min surplus = 14, STABLE min = 602,
-    #                STRESSED max = -1 004, MODERATE covers the rest.
-    if surplus >= 14_000:
-        cashflow_health = 'HEALTHY'
-    elif 600 <= surplus < 14_000:
-        cashflow_health = 'STABLE'
-    elif surplus < -1_000:
-        cashflow_health = 'STRESSED'
-    else:
-        cashflow_health = 'MODERATE'
+        dpd_90_proxy = dpd_60   # 60+ is the closest to 90+ in this dataset
 
-    # ── 3. liquidity_flag ────────────────────────────────────────────
-    # Training data: ADEQUATE median surplus = +83k,
-    #                MODERATE median = -32k, LOW median = -109k.
-    if surplus > 14_000:
-        liquidity_flag = 'ADEQUATE'
-    elif surplus > -32_000:
-        liquidity_flag = 'MODERATE'
-    else:
-        liquidity_flag = 'LOW'
+        # Estimate surplus since no bank statement
+        surplus = _infer_surplus_from_cibil(score, dpd_60, dpd_30, income)
 
-    # ── 4. bureau_risk_flag ──────────────────────────────────────────
-    # Training data: HIGH rows have dpd_90 mean = 6.1, ~99% hard_rejected.
-    #                MEDIUM rows: score median = 539, ~50% hard_rejected.
-    #                LOW is 97.9% of data.
-    if hard_reject or dpd_90 >= 3 or written_off >= 1 or (dpd_90 >= 1 and dpd_30 >= 2):
-        bureau_risk = 'HIGH'
-    elif score < 580 or (dpd_30 >= 2 and cc_util > 0.60):
-        bureau_risk = 'MEDIUM'
-    else:
-        bureau_risk = 'LOW'
+        # 1. payment_discipline_flag
+        # External CIBIL: POOR=10.5% (60+dpd>=1 OR 30+dpd>=3), MODERATE=5.1%, GOOD=84.4%
+        if dpd_60 >= 1 or dpd_30 >= 3:
+            payment_discipline = 'POOR'
+        elif dpd_30 >= 1:
+            payment_discipline = 'MODERATE'
+        else:
+            payment_discipline = 'GOOD'
 
-    # ── 5. salary_stability_flag ─────────────────────────────────────
-    # Training data: UNSTABLE salary_missing_months mean = 0.47 (up to 2).
-    #                STABLE salary_amount_cv ~0.05, zero missing months.
-    #                MODERATE salary_amount_cv ~0.13 (majority).
-    if missing >= 1:
-        salary_stability = 'UNSTABLE'
-    elif missing == 0 and score >= 700 and dpd_30 == 0 and bounces == 0:
-        salary_stability = 'STABLE'
+        # 2. cashflow_health (derived from surplus proxy + DPD)
+        # External CIBIL distribution via proxy: STABLE 84%, STRESSED 14%, HEALTHY 1.2%
+        if surplus >= 14_000:
+            cashflow_health = 'HEALTHY'
+        elif surplus >= 600:
+            cashflow_health = 'STABLE'
+        elif surplus < -1_000:
+            cashflow_health = 'STRESSED'
+        else:
+            cashflow_health = 'MODERATE'
+
+        # 3. liquidity_flag (derived from surplus proxy)
+        # External CIBIL proxy: ADEQUATE 1.2%, MODERATE 98.6%, LOW 0.1%
+        # Note: income-based surplus rarely reaches extremes → mostly MODERATE
+        if surplus > 14_000:
+            liquidity_flag = 'ADEQUATE'
+        elif surplus > -32_000:
+            liquidity_flag = 'MODERATE'
+        else:
+            liquidity_flag = 'LOW'
+
+        # 4. bureau_risk_flag
+        # External CIBIL: HIGH=5.0%, MEDIUM=10.3%, LOW=84.7%
+        # num_lss (written-off) and num_dbt (doubtful) are strong HIGH signals.
+        if written_off >= 1 or doubtful >= 1 or dpd_60 >= 3 or score < 580:
+            bureau_risk = 'HIGH'
+        elif score < 650 or (dpd_30 >= 2 and cc_util > 0.60):
+            bureau_risk = 'MEDIUM'
+        else:
+            bureau_risk = 'LOW'
+
+        # 5. salary_stability_flag
+        # External CIBIL: UNSTABLE=0.04%(tenure<6m), STABLE=11.2%(tenure>=24,score>=700)
+        # No salary_missing_months → use employment tenure + score + DPD
+        if tenure < 6:
+            salary_stability = 'UNSTABLE'
+        elif tenure >= 24 and score >= 700 and dpd_30 == 0:
+            salary_stability = 'STABLE'
+        else:
+            salary_stability = 'MODERATE'
+
     else:
-        salary_stability = 'MODERATE'
+        # ── DATASET A PATH (train_60k / bank-statement enriched) ────
+        # Has actual surplus, bounce count, and missing salary months.
+        dpd_90      = int(extraction_result.get('dpd_90_count_6m', 0) or 0)
+        bounces     = int(extraction_result.get('inward_bounce_count_3m', 0) or 0)
+        missing     = int(extraction_result.get('salary_missing_months', 0) or 0)
+        hard_reject = int(extraction_result.get('hard_reject_flag', 0) or 0)
+        surplus     = float(
+            extraction_result.get('net_cash_surplus_6m')
+            or extraction_result.get('net_surplus')
+            or -50_000
+        )
+
+        # 1. payment_discipline_flag
+        # train_60k: POOR/MODERATE rows bounce mean ~1.0, GOOD mean=0.008.
+        if dpd_90 >= 1 or bounces >= 2:
+            payment_discipline = 'POOR'
+        elif bounces == 1 or dpd_30 >= 3:
+            payment_discipline = 'MODERATE'
+        else:
+            payment_discipline = 'GOOD'
+
+        # 2. cashflow_health
+        # train_60k: HEALTHY min surplus=14k, STABLE min=600, STRESSED max=-1k.
+        if surplus >= 14_000:
+            cashflow_health = 'HEALTHY'
+        elif 600 <= surplus < 14_000:
+            cashflow_health = 'STABLE'
+        elif surplus < -1_000:
+            cashflow_health = 'STRESSED'
+        else:
+            cashflow_health = 'MODERATE'
+
+        # 3. liquidity_flag
+        # train_60k: ADEQUATE median=+83k, MODERATE median=-32k, LOW median=-109k.
+        if surplus > 14_000:
+            liquidity_flag = 'ADEQUATE'
+        elif surplus > -32_000:
+            liquidity_flag = 'MODERATE'
+        else:
+            liquidity_flag = 'LOW'
+
+        # 4. bureau_risk_flag
+        # train_60k: HIGH ~99% hard_rejected, dpd_90 mean=6.1; MEDIUM score median=539.
+        if hard_reject or dpd_90 >= 3 or written_off >= 1 or (dpd_90 >= 1 and dpd_30 >= 2):
+            bureau_risk = 'HIGH'
+        elif score < 580 or (dpd_30 >= 2 and cc_util > 0.60):
+            bureau_risk = 'MEDIUM'
+        else:
+            bureau_risk = 'LOW'
+
+        # 5. salary_stability_flag
+        # train_60k: UNSTABLE missing>=1, STABLE cv~0.05+zero missing, MODERATE rest.
+        if missing >= 1:
+            salary_stability = 'UNSTABLE'
+        elif missing == 0 and score >= 700 and dpd_30 == 0 and bounces == 0:
+            salary_stability = 'STABLE'
+        else:
+            salary_stability = 'MODERATE'
 
     return {
         'payment_discipline_flag': payment_discipline,
@@ -5952,6 +6076,8 @@ def infer_categorical_flags(extraction_result: dict) -> dict:
         'liquidity_flag':          liquidity_flag,
         'bureau_risk_flag':        bureau_risk,
         'salary_stability_flag':   salary_stability,
+        '_inference_path':         'bureau_only' if is_bureau_only else 'bank_statement',
+        '_surplus_used':           surplus if is_bureau_only else locals().get('surplus', 0),
     }
 
 # =============================================================================
@@ -6150,47 +6276,166 @@ def extract_cibil_from_pdf(uploaded_file):
         total_accounts = max(len(accounts), active_count + settled_count + written_off_count)
         pct_active = active_count / total_accounts if total_accounts > 0 else 0.6
 
+        # ── Employment tenure extraction ──────────────────────────────
+        # Try: "X years Y months at <employer>", "employed since <date>",
+        # "total employment X months", or fallback to biz_vintage * 12
+        employment_tenure_months = biz_vintage * 12
+        tenure_match = re.search(
+            r'(?:employed\s+for|employment\s+tenure|with\s+current\s+employer)[^\d]*(\d+)\s*(?:year|yr)',
+            full_text, re.IGNORECASE
+        )
+        if tenure_match:
+            employment_tenure_months = int(tenure_match.group(1)) * 12
+        else:
+            tenure_m = re.search(
+                r'(?:employed\s+for|employment\s+tenure)[^\d]*(\d+)\s*month',
+                full_text, re.IGNORECASE
+            )
+            if tenure_m:
+                employment_tenure_months = int(tenure_m.group(1))
+
+        # ── Gender / Marital / Education extraction ───────────────────
+        gender = 'M'
+        if re.search(r'\bfemale\b|\bF\b', full_text, re.IGNORECASE):
+            gender = 'F'
+
+        marital_status = 'Married'
+        if re.search(r'\bsingle\b|\bunmarried\b', full_text, re.IGNORECASE):
+            marital_status = 'Single'
+
+        education = 'GRADUATE'
+        for edu_pat, edu_val in [
+            (r'post.?grad', 'POST-GRADUATE'),
+            (r'professional', 'PROFESSIONAL'),
+            (r'under.?grad', 'UNDER GRADUATE'),
+            (r'\b12th\b|\bhsc\b', '12TH'),
+            (r'\bssc\b|\b10th\b', 'SSC'),
+        ]:
+            if re.search(edu_pat, full_text, re.IGNORECASE):
+                education = edu_val
+                break
+
+        # ── Last / first product enquiry ─────────────────────────────
+        prod_enq_map = {
+            r'personal\s+loan': 'PL',
+            r'credit\s+card':   'CC',
+            r'home\s+loan':     'HL',
+            r'auto\s+loan|car\s+loan': 'AL',
+            r'consumer\s+loan': 'ConsumerLoan',
+        }
+        last_prod_enq = 'others'
+        first_prod_enq = 'others'
+        for pat, label in prod_enq_map.items():
+            if re.search(pat, full_text, re.IGNORECASE):
+                last_prod_enq = label
+                first_prod_enq = label
+                break
+
+        # ── Compute net surplus proxy (since no bank statement in PDF) ─
+        # Uses calibrated income-based formula from External_Cibil_Dataset analysis.
+        # Available if income was extracted; used by infer_categorical_flags().
+        # dpd_60_count is the 60+ DPD proxy for this dataset.
+        surplus_proxy = _infer_surplus_from_cibil(
+            score=credit_score,
+            dpd_60=dpd_60_count,
+            dpd_30=dpd_30_count,
+            income=float(monthly_income)
+        )
+
         extracted_data = {
+            # ── Core Credit Score ──────────────────────────────────────
             'Credit_Score': credit_score,
-            'max_delinquency_level': max(dpd_90_count * 90, dpd_60_count * 60, dpd_30_count * 30),
-            'num_times_30p_dpd': dpd_30_count,
-            'num_times_60p_dpd': dpd_60_count,
-            'num_times_delinquent': dpd_30_count + dpd_60_count + dpd_90_count,
-            'num_deliq_6mts': dpd_30_count + dpd_60_count + dpd_90_count,
-            'num_deliq_12mts': dpd_30_count + dpd_60_count + dpd_90_count,
-            'max_deliq_6mts': dpd_90_count,
-            'max_deliq_12mts': dpd_90_count,
-            'enq_L3m': enq_L3m,
-            'enq_L6m': enq_L6m,
-            'enq_L12m': enq_L12m,
-            'num_std': active_count,
+
+            # ── Delinquency (External CIBIL naming convention) ─────────
+            'max_delinquency_level':    max(dpd_90_count * 90, dpd_60_count * 60, dpd_30_count * 30),
+            'max_recent_level_of_deliq': max(dpd_60_count * 60, dpd_30_count * 30),
+            'recent_level_of_deliq':    max(dpd_60_count * 60, dpd_30_count * 30),
+            'num_times_30p_dpd':        dpd_30_count,
+            'num_times_60p_dpd':        dpd_60_count,   # 60+ used as dpd_90 proxy
+            'num_times_delinquent':     dpd_30_count + dpd_60_count + dpd_90_count,
+            'num_deliq_6mts':           dpd_30_count + dpd_60_count + dpd_90_count,
+            'num_deliq_12mts':          dpd_30_count + dpd_60_count + dpd_90_count,
+            'num_deliq_6_12mts':        0,
+            'max_deliq_6mts':           dpd_90_count if dpd_90_count > 0 else dpd_60_count,
+            'max_deliq_12mts':          dpd_90_count if dpd_90_count > 0 else dpd_60_count,
+
+            # ── Account Quality (External CIBIL naming) ────────────────
+            'num_std':      active_count,
             'num_std_6mts': active_count,
             'num_std_12mts': active_count,
-            'num_sub': sub_standard_count,
+            'num_sub':      sub_standard_count,
             'num_sub_6mts': sub_standard_count,
-            'num_dbt': dpd_90_count,
-            'num_lss': written_off_count,
-            'pct_of_active_TLs_ever': round(pct_active, 2),
-            'pct_currentBal_all_TL': 0.3,
-            'CC_utilization': round(cc_util, 2),
-            'PL_utilization': 0.25,
-            'max_unsec_exposure_inPct': cc_util_pct,
-            'AGE': age_extracted,
-            'NETMONTHLYINCOME': monthly_income,
-            'Time_With_Curr_Empr': biz_vintage * 12,
+            'num_sub_12mts': sub_standard_count,
+            'num_dbt':      dpd_90_count,       # doubtful ≈ 90+ DPD proxy
+            'num_dbt_6mts': 0,
+            'num_dbt_12mts': 0,
+            'num_lss':      written_off_count,  # loss/written-off
+            'num_lss_6mts': 0,
+            'num_lss_12mts': 0,
+
+            # ── Enquiry fields ─────────────────────────────────────────
+            'enq_L3m':  enq_L3m,
+            'enq_L6m':  enq_L6m,
+            'enq_L12m': enq_L12m,
+            'tot_enq':  enq_L12m,
+            'CC_enq':   0,  'CC_enq_L6m': 0,  'CC_enq_L12m': 0,
+            'PL_enq':   0,  'PL_enq_L6m': 0,  'PL_enq_L12m': 0,
+            'time_since_recent_enq': 30,
+
+            # ── Utilization ────────────────────────────────────────────
+            'pct_of_active_TLs_ever':      round(pct_active, 2),
+            'pct_opened_TLs_L6m_of_L12m':  0.3,
+            'pct_currentBal_all_TL':        0.3,
+            'CC_utilization':               round(cc_util, 2) if cc_util > 0 else -99999,
+            'PL_utilization':               0.25,
+            'max_unsec_exposure_inPct':     cc_util_pct if cc_util_pct > 0 else 0,
+            'pct_PL_enq_L6m_of_L12m':      0.0,
+            'pct_CC_enq_L6m_of_L12m':      0.0,
+            'pct_PL_enq_L6m_of_ever':      0.0,
+            'pct_CC_enq_L6m_of_ever':      0.0,
+
+            # ── Demographics (External CIBIL fields) ───────────────────
+            'AGE':                  age_extracted,
+            'NETMONTHLYINCOME':     monthly_income,    # ← External CIBIL key (not avg_salary_6m)
+            'Time_With_Curr_Empr':  employment_tenure_months,
+            'GENDER':               gender,
+            'MARITALSTATUS':        marital_status,
+            'EDUCATION':            education,
+
+            # ── Product flags ──────────────────────────────────────────
             'CC_Flag': 1 if re.search(r'credit card', full_text, re.IGNORECASE) else 0,
             'PL_Flag': 1 if re.search(r'personal loan', full_text, re.IGNORECASE) else 0,
             'HL_Flag': 1 if re.search(r'home loan', full_text, re.IGNORECASE) else 0,
             'GL_Flag': 1 if re.search(r'gold loan', full_text, re.IGNORECASE) else 0,
-            'raw_text': full_text,
-            'success': True,
-            'extraction_method': 'OCR+robust',
-            'written_off_count': written_off_count,
-            'settled_count': settled_count,
-            'high_util_flag': high_util,
-            'dpd_90_count_6m': dpd_90_count,
-            'recent_deliq_flag': 1 if (dpd_90_count > 0 or dpd_60_count > 0) else 0,
-            'account_quality_score': max(0, 100 - (written_off_count * 20) - (settled_count * 10) - (dpd_90_count * 15) - (dpd_30_count * 5))
+            'last_prod_enq2':  last_prod_enq,
+            'first_prod_enq2': first_prod_enq,
+
+            # ── Time-since fields (sentinel if no event found) ─────────
+            'time_since_recent_payment':     70,
+            'time_since_first_deliquency':   -99999 if dpd_30_count == 0 else 180,
+            'time_since_recent_deliquency':  -99999 if dpd_30_count == 0 else 90,
+
+            # ── Surplus proxy (for infer_categorical_flags auto-path) ──
+            # NOTE: NETMONTHLYINCOME key is set above, which triggers bureau_only path.
+            # surplus_proxy stored here for session display only.
+            '_surplus_proxy': int(surplus_proxy),
+
+            # ── Legacy / internal fields ───────────────────────────────
+            'written_off_count':    written_off_count,   # legacy alias
+            'settled_count':        settled_count,
+            'high_util_flag':       high_util,
+            'dpd_90_count_6m':      dpd_90_count,        # Stage 1 form field name
+            'recent_deliq_flag':    1 if (dpd_90_count > 0 or dpd_60_count > 0) else 0,
+            'account_quality_score': max(0, 100
+                - written_off_count * 20
+                - settled_count * 10
+                - dpd_90_count * 15
+                - dpd_30_count * 5),
+
+            # ── Metadata ──────────────────────────────────────────────
+            'raw_text':          full_text,
+            'success':           True,
+            'extraction_method': 'OCR+ExternalCIBIL',
         }
         return extracted_data
     except Exception as e:
@@ -6965,14 +7210,20 @@ elif page == "👤 Assessment":
             st.success("✅ CIBIL data extracted — form fields below have been updated automatically.")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Credit Score",    ex.get('Credit_Score', '—'))
-            c2.metric("Monthly Income",  f"₹{ex.get('NETMONTHLYINCOME', 0):,}")
-            c3.metric("DPD 90+ Count",   ex.get('dpd_90_count_6m', 0))
-            c4.metric("CC Utilization",  f"{ex.get('CC_utilization', 0)*100:.0f}%")
+            c2.metric("Monthly Income",  f"₹{ex.get('NETMONTHLYINCOME') or ex.get('avg_salary_6m', 0):,}")
+            c3.metric("DPD 60+ Count",   ex.get('num_times_60p_dpd', 0))
+            c4.metric("CC Utilization",  f"{max(0, float(ex.get('CC_utilization', 0) or 0))*100:.0f}%")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("DPD 30+ Count",  ex.get('num_times_30p_dpd', 0))
             c2.metric("Inquiries (3M)", ex.get('enq_L3m', 0))
             c3.metric("Active Accounts", ex.get('num_std', 0))
-            c4.metric("Written-Off",    ex.get('written_off_count', 0))
+            c4.metric("Written-Off",    ex.get('num_lss', ex.get('written_off_count', 0)))
+            # Show surplus proxy and inference path
+            _inf_path = ex.get('_surplus_proxy', None)
+            if _inf_path is not None:
+                surplus_val = ex.get('_surplus_proxy', 0)
+                st.info(f"💡 **Bureau-only PDF** — net surplus estimated from income: ₹{surplus_val:,} "
+                        f"(no bank statement in CIBIL report). Used for cashflow/liquidity inference.")
             if ex.get('written_off_count', 0) > 0 or ex.get('settled_count', 0) > 0:
                 st.warning(f"⚠️ Severe negatives detected: "
                            f"{ex.get('written_off_count', 0)} written-off, "
@@ -7024,13 +7275,27 @@ elif page == "👤 Assessment":
                         st.session_state.pdf_bureau_score      = int(extraction_result.get('Credit_Score', 720))
                         st.session_state.pdf_dpd_90            = int(extraction_result.get('dpd_90_count_6m', 0))
                         st.session_state.pdf_dpd_30            = int(extraction_result.get('num_times_30p_dpd', 0))
-                        st.session_state.pdf_credit_util       = int(float(extraction_result.get('CC_utilization', 0.35)) * 100)
+                        st.session_state.pdf_credit_util       = int(max(0, float(extraction_result.get('CC_utilization', 0) or 0)) * 100)
                         st.session_state.pdf_inquiries         = int(extraction_result.get('enq_L3m', 2))
                         st.session_state.pdf_active_loans      = int(extraction_result.get('num_std', 1))
                         st.session_state.pdf_existing_emi      = int(extraction_result.get('existing_emi', 15000))
-                        st.session_state.pdf_monthly_income    = int(extraction_result.get('NETMONTHLYINCOME', 50000))
-                        st.session_state.pdf_annual_income     = int(extraction_result.get('NETMONTHLYINCOME', 50000)) * 12
-                        st.session_state.pdf_net_surplus       = int(extraction_result.get('net_surplus', 20000))
+                        # ── Income: External CIBIL uses NETMONTHLYINCOME (median ₹23k) ──
+                        # train_60k uses avg_salary_6m (median ₹50k). Use whichever is present.
+                        _income = int(
+                            extraction_result.get('NETMONTHLYINCOME')
+                            or extraction_result.get('avg_salary_6m')
+                            or 50000
+                        )
+                        st.session_state.pdf_monthly_income    = _income
+                        st.session_state.pdf_annual_income     = _income * 12
+                        # ── Net surplus: use proxy if bureau-only, else actual ─────────
+                        _surplus = int(
+                            extraction_result.get('net_cash_surplus_6m')
+                            or extraction_result.get('net_surplus')
+                            or extraction_result.get('_surplus_proxy')
+                            or 20000
+                        )
+                        st.session_state.pdf_net_surplus       = _surplus
                         st.session_state.pdf_loan_amount       = int(extraction_result.get('loan_amount', 180000))
                         st.session_state.pdf_loan_tenure       = int(extraction_result.get('loan_tenure', 24))
                         st.session_state.pdf_interest_rate     = float(extraction_result.get('interest_rate', 10.5))
@@ -8102,3 +8367,5 @@ elif page == "ℹ️ About":
                 </div>
             </div>
         """, unsafe_allow_html=True)
+
+
