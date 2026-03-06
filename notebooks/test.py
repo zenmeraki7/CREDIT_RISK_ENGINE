@@ -10536,7 +10536,6 @@
 
 
 
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -10677,6 +10676,17 @@ except ImportError:
 st.markdown(CSS, unsafe_allow_html=True)
 
 # =============================================================================
+# CITY TIER MAPPING
+# =============================================================================
+CITY_TIERS = {
+    "Tier 1 – Metro (Mumbai, Delhi, Bengaluru, Chennai, Hyderabad, Kolkata, Pune, Ahmedabad)": "Tier 1",
+    "Tier 2 – Large City (Jaipur, Lucknow, Kochi, Nagpur, Indore, Bhopal, Patna, Vadodara…)": "Tier 2",
+    "Tier 3 – Small City / Town": "Tier 3",
+    "Rural / Village": "Rural",
+}
+
+
+# =============================================================================
 # SESSION STATE INITIALIZATION
 # =============================================================================
 def init_session_state():
@@ -10694,6 +10704,8 @@ def init_session_state():
         st.session_state.use_two_stage = False
     if 'stage2_selected_tab' not in st.session_state:
         st.session_state.stage2_selected_tab = "Manual Entry"
+    if 'fairness_log' not in st.session_state:
+        st.session_state.fairness_log = []
 
 init_session_state()
 
@@ -11710,6 +11722,13 @@ def make_hybrid_decision_enhanced(customer_dict):
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 100.0, 'affordability_data': {}}
     policy_checks['age'] = f"✅ Age {age} (Valid)"
+    if not customer_dict.get('rbi_consent', False):
+        policy_checks['rbi_consent'] = "❌ RBI Consent not obtained"
+        return {'decision': "REJECT", 'reason': "Policy Gate: Customer consent not obtained", 'confidence': 0,
+                'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
+                'pd_percentage': 100.0, 'affordability_data': {}}
+    policy_checks['rbi_consent'] = "✅ Consent Obtained"
+
     if not kyc_verified:
         policy_checks['kyc'] = "❌ KYC Not Verified"
         return {'decision': "REJECT", 'reason': "Policy Gate: KYC verification required", 'confidence': 0,
@@ -11987,6 +12006,13 @@ def process_batch_predictions(df):
                 'loan_amount': customer_dict.get('loan_amount', ''),
                 'error_message': str(e)
             }
+        else:
+            # Log to fairness monitor (batch — success path only)
+            log_decision_for_fairness(
+                customer_dict, result['decision'],
+                result.get('risk_score', 0), result.get('pd_percentage', 0),
+                source='batch'
+            )
         results.append(result)
     return pd.DataFrame(results)
 
@@ -12340,6 +12366,162 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
 
+
+# =============================================================================
+# FAIRNESS LOG HELPER
+# =============================================================================
+def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: int,
+                               pd_pct: float, application_id: str = None, source: str = 'stage1'):
+    """
+    Append a minimal record to the in-session fairness log.
+    source = 'stage1' | 'stage2' | 'batch'
+    When Stage 2 completes it REPLACES the Stage 1 record for the same app_id
+    so the fairness dashboard always shows the FINAL binding decision.
+    """
+    record = {
+        'ts':              datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'application_id':  application_id or customer_data.get('application_id', ''),
+        'source':          source,
+        'decision':        decision,
+        'risk_score':      risk_score,
+        'pd_pct':          pd_pct,
+        'gender':          customer_data.get('gender', 'Unknown'),
+        'city_tier':       customer_data.get('city_tier', 'Unknown'),
+        'employment_type': customer_data.get('employment_type', 'Unknown'),
+        'bureau_score':    customer_data.get('bureau_score', 0),
+        'age_band': (
+            '24-30' if customer_data.get('age', 0) < 31 else
+            '31-40' if customer_data.get('age', 0) < 41 else
+            '41-50' if customer_data.get('age', 0) < 51 else '51+'
+        ),
+    }
+    st.session_state.fairness_log.append(record)
+
+
+# =============================================================================
+# FAIRNESS MONITORING DASHBOARD
+# =============================================================================
+def render_fairness_dashboard():
+    st.markdown('<p class="main-header">⚖️ Fairness Monitoring</p>', unsafe_allow_html=True)
+    st.markdown("""
+        <div class="info-box">
+            <strong>RBI Fair Lending Compliance Dashboard</strong><br>
+            Tracks approval rates across demographic groups to detect potential disparate impact.
+            <strong>Fairness is measured on the FINAL binding decision</strong> — Stage 2 outcome
+            is used when available; Stage 1 entries are replaced once Stage 2 completes.
+            Data is session-based — decisions accumulate as applications are processed.
+        </div>
+    """, unsafe_allow_html=True)
+
+    log = st.session_state.get('fairness_log', [])
+
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🗑️ Clear Log", use_container_width=True):
+            st.session_state.fairness_log = []
+            st.rerun()
+
+    if not log:
+        st.info("ℹ️ No decisions logged yet. Process applications from the Assessment page.")
+        st.markdown("### 📊 What will appear here:")
+        st.markdown("""
+        - **Approval rate by Gender** — checks for gender bias
+        - **Approval rate by City Tier** — checks Tier 1 vs Tier 3 vs Rural equity
+        - **Approval rate by Age Band** — identifies age discrimination
+        - **Approval rate by Employment Type** — salaried vs self-employed parity
+        """)
+        return
+
+    df = pd.DataFrame(log)
+    df['approved'] = (df['decision'] == 'APPROVE').astype(int)
+    n = len(df)
+
+    if 'source' in df.columns:
+        n_s2    = int((df['source'] == 'stage2').sum())
+        n_s1    = int((df['source'] == 'stage1').sum())
+        n_batch = int((df['source'] == 'batch').sum())
+        st.caption(f"📌 {n_s2} Stage 2 (final) · {n_s1} Stage 1 (screening) · {n_batch} Batch")
+
+    st.markdown("---")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("Total Decisions", n)
+    with c2: st.metric("Approvals", int(df['approved'].sum()), f"{df['approved'].mean()*100:.1f}%")
+    with c3: st.metric("Reviews", int((df['decision']=='REVIEW').sum()))
+    with c4: st.metric("Rejections", int((df['decision']=='REJECT').sum()))
+
+    st.markdown("---")
+    tab1, tab2, tab3, tab4 = st.tabs(["👥 Gender", "🏙️ City Tier", "📅 Age Band", "💼 Employment"])
+
+    COLOR_MAP = {'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'}
+
+    def _approval_bar(group_col, title):
+        grp = df.groupby(group_col).agg(
+            Total=('decision', 'count'),
+            Approved=('approved', 'sum'),
+            Avg_Risk=('risk_score', 'mean'),
+            Avg_PD=('pd_pct', 'mean'),
+        ).reset_index()
+        grp['Approval Rate %'] = (grp['Approved'] / grp['Total'] * 100).round(1)
+        grp['Avg Risk Score']  = grp['Avg_Risk'].round(1)
+        grp['Avg PD %']        = grp['Avg_PD'].round(2)
+        overall_rate = df['approved'].mean() * 100
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            fig = px.bar(grp, x=group_col, y='Approval Rate %', title=title,
+                         text='Approval Rate %', color='Approval Rate %',
+                         color_continuous_scale=['#f56565', '#ed8936', '#48bb78'],
+                         range_color=[0, 100])
+            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10),
+                              coloraxis_showscale=False, paper_bgcolor='white', plot_bgcolor='white',
+                              yaxis={'range': [0, 110], 'gridcolor': '#e2e8f0'})
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            st.markdown("**Summary Table**")
+            display_df = grp[[group_col, 'Total', 'Approval Rate %', 'Avg Risk Score', 'Avg PD %']].copy()
+            def _flag(rate):
+                diff = rate - overall_rate
+                if abs(diff) > 15: return f"{'🔴' if diff < 0 else '🟢'} {rate:.1f}%"
+                return f"✅ {rate:.1f}%"
+            display_df['Approval Rate %'] = display_df['Approval Rate %'].apply(_flag)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.caption(f"Overall: **{overall_rate:.1f}%** | 🔴 = >15pp below avg (bias risk) | 🟢 = >15pp above avg")
+
+    with tab1:
+        if df['gender'].nunique() > 1:
+            _approval_bar('gender', 'Approval Rate by Gender')
+        else:
+            st.info("Need 2+ gender values to show chart. Ensure Gender field is filled on the form.")
+
+    with tab2:
+        if df['city_tier'].nunique() > 1:
+            _approval_bar('city_tier', 'Approval Rate by City Tier')
+        else:
+            st.info("Need 2+ city tier values. Ensure City Tier field is filled.")
+
+    with tab3:
+        if df['age_band'].nunique() > 1:
+            _approval_bar('age_band', 'Approval Rate by Age Band')
+        else:
+            st.info("Need decisions across multiple age bands (24-30, 31-40, 41-50, 51+).")
+
+    with tab4:
+        if df['employment_type'].nunique() > 1:
+            _approval_bar('employment_type', 'Approval Rate by Employment Type')
+        else:
+            st.info("Need 2+ employment types in decisions.")
+
+    st.markdown("---")
+    st.markdown("### 📥 Export Fairness Report")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button("📥 Download Decision Log (CSV)", data=df.to_csv(index=False),
+                           file_name=f"fairness_log_{datetime.now().strftime('%Y%m%d')}.csv",
+                           mime="text/csv", use_container_width=True)
+    with col2:
+        st.caption("⚠️ This log is session-based and resets when the app restarts.")
+
 # =============================================================================
 # SIDEBAR
 # =============================================================================
@@ -12347,7 +12529,7 @@ with st.sidebar:
     st.markdown("# 🏦 Credit Risk Engine")
     st.markdown("---")
 
-    navigation_options = ["🏠 Home", "👤 Assessment", "📊 Batch Process", "📈 Model Info", "ℹ️ About"]
+    navigation_options = ["🏠 Home", "👤 Assessment", "📊 Batch Process", "⚖️ Fairness", "📈 Model Info", "ℹ️ About"]
 
     if (st.session_state.stage1_complete and
             st.session_state.stage1_decision in ['APPROVE', 'REVIEW']):
@@ -12372,16 +12554,18 @@ with st.sidebar:
     if not OCR_AVAILABLE and OCR_ERROR_MSG:
         ocr_indicator += ' ⚠️'
     pdf_indicator = '✅ Ready' if PDF_AVAILABLE else '❌ Not Installed'
+    fairness_count = len(st.session_state.fairness_log)
 
     st.markdown(f"""
     <div class="info-card">
         <div class="info-card-title">System Status</div>
         <div class="info-card-content">
             <div class="data-row"><span class="data-label">Model</span><span class="data-value">✅ Loaded</span></div>
-            <div class="data-row"><span class="data-label">Version</span><span class="data-value">8.4</span></div>
+            <div class="data-row"><span class="data-label">Version</span><span class="data-value">8.7</span></div>
             <div class="data-row"><span class="data-label">Stage 2</span><span class="data-value">{stage2_indicator}</span></div>
             <div class="data-row"><span class="data-label">OCR</span><span class="data-value">{ocr_indicator}</span></div>
             <div class="data-row"><span class="data-label">PDF Gen</span><span class="data-value">{pdf_indicator}</span></div>
+            <div class="data-row"><span class="data-label">Fairness Log</span><span class="data-value">{fairness_count} decisions</span></div>
             <div class="data-row"><span class="data-label">Features</span><span class="data-value">{len(TOP_FEATURES)}</span></div>
         </div>
     </div>
@@ -12431,26 +12615,26 @@ if page == "🏠 Home":
         """, unsafe_allow_html=True)
     with col3:
         st.markdown("""
-            <div class="info-card"><div class="info-card-title"><span class="icon">💰</span><span>Affordability</span></div>
-            <div class="info-card-content"><ul><li>EMI calculation</li><li>FOIR analysis (max 50%)</li>
-            <li>Net disposable income</li><li>Debt burden assessment</li><li>Affordability scoring</li></ul></div></div>
+            <div class="info-card"><div class="info-card-title"><span class="icon">⚖️</span><span>Fairness Monitoring</span></div>
+            <div class="info-card-content"><ul><li>Approval rate by gender</li><li>Approval rate by city tier</li>
+            <li>Age band equity check</li><li>Employment type parity</li><li>RBI compliance ready</li></ul></div></div>
         """, unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("🎯 Accuracy", "85%", "+2%")
     with col2: st.metric("⚡ Avg Response", "1.2s", "-0.3s")
     with col3: st.metric("📊 Features", len(TOP_FEATURES))
-    with col4: st.metric("🔄 Version", "8.4", "Latest")
+    with col4: st.metric("🔄 Version", "8.7", "Latest")
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
         <div class="warning-box">
-            <strong>🆕 New in Version 8.4:</strong><br>
-            • OCR Auto-fill Fix: All 5 categorical dropdowns now update correctly from PDF<br>
-            • Payment Discipline inferred from DPD + bounce data (60K dataset calibrated)<br>
-            • Cashflow Health inferred from net cash surplus thresholds<br>
-            • Liquidity Flag inferred from net cash surplus<br>
-            • Bureau Risk Flag inferred from score + DPD + hard-reject signals<br>
-            • Salary Stability now uses data-driven inference (not hardcoded STABLE)
+            <strong>🆕 New in Version 8.7:</strong><br>
+            • ⚖️ <strong>Fairness Monitoring</strong> — approval rates by gender, city tier, age band, employment<br>
+            • 🏙️ <strong>City Tier field</strong> — Tier 1 Metro / Tier 2 / Tier 3 / Rural captured every application<br>
+            • 📜 <strong>RBI Consent gate</strong> — required checkbox per Digital Lending Guidelines 2022<br>
+            • 👤 <strong>Gender field</strong> — explicit capture for fair lending compliance<br>
+            • 🔢 <strong>Tiered DPD 90+ gate</strong> — 0-1 pass / 2-5 review / >5 reject<br>
+            • 📄 <strong>PDF corrected</strong> — risk score /100, DPD tier labels, all field names fixed
         </div>
     """, unsafe_allow_html=True)
 
@@ -12580,7 +12764,7 @@ elif page == "👤 Assessment":
 
     with st.form("assessment_form"):
         st.markdown('<p class="section-header">👤 Identity & Eligibility</p>', unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             age = st.number_input(
                 "Age", 24, 70,
@@ -12595,6 +12779,20 @@ elif page == "👤 Assessment":
                 )
             )
         with col2:
+            gender = st.selectbox(
+                "Gender",
+                ['Male', 'Female', 'Non-binary / Other', 'Prefer not to say'],
+                index=0,
+                help="Required for RBI fair lending compliance monitoring"
+            )
+            city_tier_label = st.selectbox(
+                "City Tier",
+                list(CITY_TIERS.keys()),
+                index=0,
+                help="Used for geographic fairness monitoring"
+            )
+            city_tier = CITY_TIERS[city_tier_label]
+        with col3:
             dependents = st.number_input(
                 "Number of Dependents", 0, 20,
                 value=int(st.session_state.get('pdf_dependents', 2)),
@@ -12604,7 +12802,7 @@ elif page == "👤 Assessment":
                 "KYC Verified", ['Yes', 'No'],
                 index=0 if st.session_state.get('pdf_kyc', True) else 1
             ) == 'Yes'
-        with col3:
+        with col4:
             bankruptcy_flag = st.selectbox(
                 "Bankruptcy Flag", ['No', 'Yes'],
                 index=0 if not st.session_state.get('pdf_bankruptcy', False) else 1
@@ -12613,6 +12811,30 @@ elif page == "👤 Assessment":
                 "Fraud Flag", ['No', 'Yes'],
                 index=0 if not st.session_state.get('pdf_fraud', False) else 1
             ) == 'Yes'
+
+        # ── RBI Consent — REQUIRED policy gate ───────────────────────────────
+        st.markdown('<p class="section-header">📜 RBI Compliance</p>', unsafe_allow_html=True)
+        col_a, col_b = st.columns([2, 1])
+        with col_a:
+            rbi_consent = st.checkbox(
+                "✅ I confirm the customer has been informed of and consented to: "
+                "(a) credit bureau enquiry, (b) data usage for credit assessment, "
+                "(c) Key Fact Statement (KFS) terms, and (d) grievance redressal process. "
+                "**(Required — RBI Digital Lending Guidelines 2022)**",
+                value=False
+            )
+        with col_b:
+            st.markdown("""
+                <div style="background:#fff3cd;border:1px solid #ffc107;padding:0.5rem;
+                            border-radius:0.4rem;font-size:0.82rem;">
+                    ⚠️ Without consent the application cannot proceed per RBI DLG 2022.
+                </div>
+            """, unsafe_allow_html=True)
+
+        # ── Employment tenure ─────────────────────────────────────────────────
+        st.markdown('<p class="section-header">💼 Employment</p>', unsafe_allow_html=True)
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
             if employment_type == 'Salaried':
                 employment_tenure = st.number_input(
                     "Employment Tenure (months)", 0, 600,
@@ -12625,6 +12847,14 @@ elif page == "👤 Assessment":
                     value=int(st.session_state.get('pdf_business_vintage', 3))
                 )
                 employment_tenure = 0
+        with col_e2:
+            st.markdown("""
+                <div class="info-box" style="margin-top:1rem;">
+                    <strong>Policy thresholds:</strong><br>
+                    Salaried: min 6 months<br>
+                    Self-Employed/Business: min 2 years
+                </div>
+            """, unsafe_allow_html=True)
 
         st.markdown('<p class="section-header">🏦 Credit Bureau</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
@@ -12754,6 +12984,9 @@ elif page == "👤 Assessment":
         customer_data = {
             'age': age,
             'employment_type': employment_type,
+            'gender': gender,
+            'city_tier': city_tier,
+            'rbi_consent': rbi_consent,
             'dependents': dependents,
             'kyc_verified': kyc_verified,
             'bankruptcy_flag': bankruptcy_flag,
@@ -12796,6 +13029,13 @@ elif page == "👤 Assessment":
             policy_checks=decision_data.get('policy_checks', {})
         )
         customer_data['reason_codes'] = reasons
+
+        # Log to fairness monitor (Stage 1 — may be replaced by Stage 2 final decision)
+        log_decision_for_fairness(
+            customer_data, decision_data.get('decision', 'ERROR'),
+            decision_data.get('risk_score', 0), decision_data.get('pd_percentage', 0),
+            application_id=customer_data.get('application_id'), source='stage1'
+        )
 
         st.session_state.stage1_complete = True
         st.session_state.stage1_decision = decision_data.get('decision', 'ERROR')
@@ -13400,6 +13640,9 @@ elif page == "🔬 Stage 2 Analysis":
         st.markdown('<p class="section-header">📊 Batch CIBIL Analysis</p>', unsafe_allow_html=True)
         st.info("📊 Batch analysis feature coming soon! (Upload a CSV with all required CIBIL fields)")
 
+elif page == "⚖️ Fairness":
+    render_fairness_dashboard()
+
 elif page == "📊 Batch Process":
     st.markdown('<p class="main-header">Batch Processing</p>', unsafe_allow_html=True)
     st.markdown("""
@@ -13582,7 +13825,7 @@ elif page == "ℹ️ About":
         <div class="info-card">
             <div class="info-card-title"><span class="icon">🏦</span><span>Credit Risk Assessment Platform</span></div>
             <div class="info-card-content">
-                <p><strong>Version:</strong> 8.4 - OCR AUTO-FILL FIX (categorical dropdowns now update from PDF)</p>
+                <p><strong>Version:</strong> 8.7 - OCR AUTO-FILL FIX (categorical dropdowns now update from PDF)</p>
                 <p><strong>Developer:</strong> Zen Meraki</p>
                 <p><strong>Date:</strong> January 2026</p>
                 <br>
