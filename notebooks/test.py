@@ -8372,6 +8372,7 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -8403,10 +8404,8 @@ import plotly.express as px
 import joblib
 import warnings
 from datetime import datetime
-import hashlib
-import io
 import base64
-from typing import Dict, List, Any, Union
+from typing import List, Any
 import json
 import sys
 import os
@@ -8546,9 +8545,9 @@ try:
     from reason_codes import generate_reason_codes
     from risk_engine import (
         calculate_final_risk_score, fill_missing_ml_fields,
-        clean_sentinel_values, validate_cibil_identity
+        clean_sentinel_values
     )
-    from affordability_engine import check_loan_to_income, check_net_disposable
+    from affordability_engine import check_net_disposable
 except ImportError as e:
     st.error(f"❌ Failed to import required modules: {e}")
     st.info("""
@@ -9218,6 +9217,14 @@ def process_batch_predictions(df):
                 'loan_amount': customer_dict.get('loan_amount', ''),
                 'error_message': str(e)
             }
+        else:
+            # Log to fairness monitor (success path only)
+            log_decision_for_fairness(
+                customer_dict,
+                result['decision'],
+                result['risk_score'],
+                result['pd_percentage']
+            )
         results.append(result)
     return pd.DataFrame(results)
 
@@ -9718,6 +9725,9 @@ elif page == "👤 Assessment":
     with st.form("assessment_form"):
         # ── Identity & Eligibility ─────────────────────────────────────────
         st.markdown('<p class="section-header">👤 Identity & Eligibility</p>', unsafe_allow_html=True)
+        col_name1, col_name2 = st.columns([2, 2])
+        with col_name1:
+            customer_name = st.text_input("Customer Name (Optional)", value="", placeholder="e.g. Ramesh Kumar")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             age = st.number_input("Age", 24, 70, value=int(st.session_state.get('pdf_age', 35)))
@@ -9850,6 +9860,7 @@ elif page == "👤 Assessment":
         timestamp = datetime.now()
         app_id = "PL" + timestamp.strftime("%Y%m%d%H%M%S")
         customer_data = {
+            'name': customer_name.strip() if customer_name.strip() else 'N/A',
             'age': age, 'employment_type': employment_type,
             'gender': gender, 'city_tier': city_tier,
             'dependents': dependents, 'kyc_verified': kyc_verified,
@@ -10423,5 +10434,4 @@ elif page == "ℹ️ About":
                 </ul></div>
             </div>
         """, unsafe_allow_html=True)
-
 
