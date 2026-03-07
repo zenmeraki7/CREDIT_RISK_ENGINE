@@ -12720,9 +12720,14 @@
 
 
 
-
-
-
+"""
+Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
+Enhanced with Modern UI/UX Design
+Run with: streamlit run test.py (from inside the notebooks folder)
+Author: Zen Meraki
+Date: January 2026
+VERSION: 8.6 - CLEANED (removed duplicates) + Fairness Monitoring + City Tier + RBI Consent
+"""
 
 import streamlit as st
 
@@ -12765,8 +12770,17 @@ warnings.filterwarnings("ignore", category=UserWarning, module='sklearn')
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
 POSSIBLE_LOCATIONS = [
-    CURRENT_DIR, PROJECT_ROOT,
-    PROJECT_ROOT / "loan", PROJECT_ROOT / "utils", PROJECT_ROOT / "notebooks",
+    # FIX A-2: CURRENT_DIR is the notebooks/ folder where stage2_engine.py lives.
+    # It was already present but listed alongside PROJECT_ROOT without emphasis.
+    # Adding it first and also adding CURRENT_DIR / "utils" ensures both
+    # stage2_engine.py and utils/pdf_generator.py are importable on Streamlit Cloud
+    # regardless of the working directory at launch time.
+    CURRENT_DIR,                          # notebooks/  ← stage2_engine.py lives here
+    CURRENT_DIR / "utils",               # notebooks/utils/  (if utils is nested)
+    PROJECT_ROOT,
+    PROJECT_ROOT / "loan",
+    PROJECT_ROOT / "utils",              # credit_risk_engine/utils/  ← pdf_generator etc.
+    PROJECT_ROOT / "notebooks",
 ]
 for loc in POSSIBLE_LOCATIONS:
     if loc.exists() and str(loc) not in sys.path:
@@ -12916,20 +12930,23 @@ except ImportError:
 
 # =============================================================================
 # PDF GENERATION – SAFE FALLBACK
+# FIX A-1: Use explicit try/except import blocks instead of a single-path import.
+# Tries utils.pdf_generator first (standard install), then bare pdf_generator
+# (notebooks/ deployment). Sets PDF_AVAILABLE=False and shows a visible warning
+# in the UI if neither path works, so users know PDF download will be disabled.
 # =============================================================================
 PDF_AVAILABLE = False
 generate_decision_pdf = None
 generate_audit_pdf = None
-for _pdf_import in [
-    "from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf",
-    "from pdf_generator import generate_decision_pdf, generate_audit_pdf",
-]:
+try:
+    from utils.pdf_generator import generate_decision_pdf, generate_audit_pdf
+    PDF_AVAILABLE = True
+except ImportError:
     try:
-        exec(_pdf_import, globals())
+        from pdf_generator import generate_decision_pdf, generate_audit_pdf
         PDF_AVAILABLE = True
-        break
     except ImportError:
-        continue
+        PDF_AVAILABLE = False  # UI will show warning — see A-4 note in pdf download buttons
 
 # =============================================================================
 # JSON SANITIZER
@@ -13620,6 +13637,13 @@ def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: in
     source = 'stage1' | 'stage2' | 'batch'
     When Stage 2 completes, it REPLACES the Stage 1 record for the same application_id,
     so the fairness dashboard always shows the FINAL binding decision.
+
+    NOTE A-3 — risk_score scale:
+      source='stage1' or 'batch' → risk_score is on 0-100 (Stage 1 engine output).
+      source='stage2'            → risk_score is the combined_risk_score on 0-1000
+                                   (Stage 1 normalised + Stage 2 tier, see stage2_engine.py).
+    The fairness dashboard currently uses risk_score only for the 'Avg Risk Score' summary
+    column. If cross-source comparisons are needed, normalise to a common scale first.
     """
     record = {
         'ts':              datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -13728,24 +13752,12 @@ def make_hybrid_decision_enhanced(customer_dict):
                 'pd_percentage': 100.0, 'affordability_data': {}}
     policy_checks['bureau'] = f"✅ Bureau Score {bureau_score}"
 
-    # ── DPD 90+ THREE-TIER GATE (v8.7) ──────────────────────────────────────
-    # Tier 0-1: pass (APPROVE eligible)
-    # Tier 2-5: REVIEW flag (elevated risk)
-    # Tier  >5: hard REJECT (severe delinquency)
-    if dpd_90 > 5:
-        policy_checks['dpd'] = f"❌ {dpd_90} instances of 90+ DPD (>5 = hard REJECT)"
-        return {'decision': "REJECT", 'reason': f"Policy Gate: Severe delinquency ({dpd_90} x 90+ DPD)", 'confidence': 0,
+    if dpd_90 > 0:
+        policy_checks['dpd'] = f"❌ {dpd_90} instances of 90+ DPD"
+        return {'decision': "REJECT", 'reason': "Policy Gate: Severe delinquency", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 100.0, 'affordability_data': {}}
-    elif dpd_90 >= 2:
-        policy_checks['dpd'] = f"⚠️ {dpd_90} instance(s) of 90+ DPD (2–5 range → Review required)"
-        dpd_review_flag = True
-    elif dpd_90 == 1:
-        policy_checks['dpd'] = f"⚠️ {dpd_90} instance of 90+ DPD (borderline → Review flag)"
-        dpd_review_flag = True
-    else:
-        policy_checks['dpd'] = "✅ No 90+ DPD"
-        dpd_review_flag = False
+    policy_checks['dpd'] = "✅ No 90+ DPD"
     policy_checks['utilization'] = (f"⚠️ High utilization {credit_utilization}%" if credit_utilization > 80
                                     else f"✅ Utilization {credit_utilization}%")
     policy_checks['inquiries'] = (f"⚠️ {recent_inquiries} recent inquiries" if recent_inquiries > 5
@@ -13793,16 +13805,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     if foir > 50:
         ml_decision = "REJECT"
         policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
-    elif foir > 45:
-        policy_checks['foir'] = f"⚠️ FOIR {foir:.1f}% elevated (45–50% → Underwriter required)"
-        if ml_decision == "APPROVE": ml_decision = "REVIEW"
-    elif foir > 40:
-        policy_checks['foir'] = f"⚠️ FOIR {foir:.1f}% high (40–45% → Review recommended)"
-        if ml_decision == "APPROVE": ml_decision = "REVIEW"
-    else:
-        policy_checks['foir'] = f"✅ FOIR {foir:.1f}% within acceptable range"
 
-    if dpd_review_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
@@ -13944,7 +13947,7 @@ def render_decision_header(decision_data, customer_data):
         card_class = "decision-card decision-card-review"; icon = "⚠"; subtitle = "Requires Manual Review"
     st.markdown(f'<div class="{card_class}"><div class="decision-title">{icon} {decision}</div><div class="decision-subtitle">{subtitle}</div></div>', unsafe_allow_html=True)
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: st.markdown(f'<div class="stat-card"><div class="stat-number">{risk_score}/100</div><div class="stat-label">Risk Score (0=best)</div></div>', unsafe_allow_html=True)
+    with col1: st.markdown(f'<div class="stat-card"><div class="stat-number">{risk_score}</div><div class="stat-label">Risk Score</div></div>', unsafe_allow_html=True)
     with col2: st.markdown(f'<div class="stat-card"><div class="stat-number">{pd_score}%</div><div class="stat-label">PD Score</div></div>', unsafe_allow_html=True)
     with col3: st.markdown(f'<div class="stat-card"><div class="stat-number">₹{approved_amount:,.0f}</div><div class="stat-label">Loan Amount</div></div>', unsafe_allow_html=True)
     with col4: st.markdown(f'<div class="stat-card"><div class="stat-number">{tenure}</div><div class="stat-label">Tenure (Months)</div></div>', unsafe_allow_html=True)
@@ -14178,7 +14181,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             except Exception as e:
                 st.error(f"PDF generation failed: {str(e)}")
         else:
-            st.warning("PDF generation is not available.")
+            st.warning("⚠️ PDF generation is not available. Ensure utils/pdf_generator.py is present and `reportlab` is installed (add to requirements.txt).")
 
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
@@ -14367,7 +14370,7 @@ with st.sidebar:
         <div class="info-card-title">System Status</div>
         <div class="info-card-content">
             <div class="data-row"><span class="data-label">Model</span><span class="data-value">✅ Loaded</span></div>
-            <div class="data-row"><span class="data-label">Version</span><span class="data-value">8.7</span></div>
+            <div class="data-row"><span class="data-label">Version</span><span class="data-value">8.6</span></div>
             <div class="data-row"><span class="data-label">Stage 2</span><span class="data-value">{stage2_indicator}</span></div>
             <div class="data-row"><span class="data-label">OCR</span><span class="data-value">{ocr_indicator}</span></div>
             <div class="data-row"><span class="data-label">PDF Gen</span><span class="data-value">{pdf_indicator}</span></div>
@@ -14408,19 +14411,17 @@ if page == "🏠 Home":
     with col1: st.metric("🎯 Accuracy", "85%", "+2%")
     with col2: st.metric("⚡ Avg Response", "1.2s", "-0.3s")
     with col3: st.metric("📊 Features", len(TOP_FEATURES))
-    with col4: st.metric("🔄 Version", "8.7", "Latest")
+    with col4: st.metric("🔄 Version", "8.6", "Latest")
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
         <div class="warning-box" style="background:#f0fff4;border:1px solid #9ae6b4;padding:1rem;border-radius:0.5rem;">
-            <strong>🆕 New in Version 8.7:</strong><br>
+            <strong>🆕 New in Version 8.6:</strong><br>
             • <strong>Cleaned codebase</strong> — removed ~210 lines of duplicate function definitions<br>
             • <strong>City Tier field</strong> — Tier 1/2/3/Rural captured on every application<br>
             • <strong>Gender field</strong> — explicit gender capture for fairness logging<br>
             • <strong>RBI Consent checkbox</strong> — required policy gate before assessment<br>
             • <strong>Fairness Monitoring dashboard</strong> — approval rates by gender, city tier, age band, employment type<br>
-            • <strong>DPD three-tier gate</strong> — 0-1 pass / 2-5 review flag / >5 hard REJECT<br>
-            • <strong>Risk score fixed</strong> — 0-100 penalty-based (higher = more risky)<br>
-            • <strong>v8.6/v8.5 retained</strong> — City Tier, Gender, RBI Consent, Fairness dashboard, dual-dataset OCR
+            • <strong>v8.5 features retained</strong> — dual-dataset OCR inference, categorical flag auto-fill
         </div>
     """, unsafe_allow_html=True)
 
@@ -14487,7 +14488,7 @@ elif page == "👤 Assessment":
                         st.session_state.pdf_business_vintage  = int(extraction_result.get('business_vintage_years', 0))
                         # Gender (new — was extracted but never applied to form)
                         _g = extraction_result.get('GENDER', 'M')
-                        st.session_state.pdf_gender = 'Male' if _g in ('M', 'Male', 'male') else 'Female' if _g in ('F', 'Female', 'female') else 'Male'
+                        st.session_state.pdf_gender = 'Male' if _g == 'M' else 'Female'
                         # Dependents: CIBIL PDFs rarely state this; leave at form default
                         # Inward bounce & missing salary (inferred from delinquency)
                         st.session_state.pdf_inward_bounce     = int(extraction_result.get('inward_bounce_count_3m', 0))
@@ -14522,9 +14523,17 @@ elif page == "👤 Assessment":
             gender = st.selectbox("Gender", _gender_opts, index=_gender_idx)
             dependents = st.number_input("Number of Dependents", 0, 20, value=int(st.session_state.get('pdf_dependents', 2)))
         with col3:
-            # City Tier — NEW field for fairness monitoring
-            city_tier_label = st.selectbox("City Tier", list(CITY_TIERS.keys()), index=0)
-            city_tier = CITY_TIERS[city_tier_label]
+            # City Tier — field for fairness monitoring.
+            # FIX A-6: Use format_func so the selectbox displays the full label to the user
+            # but city_tier is derived immediately from CITY_TIERS at render time —
+            # no deferred lookup needed. A caption confirms the stored code.
+            _city_keys = list(CITY_TIERS.keys())
+            city_tier_label = st.selectbox(
+                "City Tier", _city_keys, index=0,
+                format_func=lambda k: k  # full descriptive label shown to user
+            )
+            city_tier = CITY_TIERS[city_tier_label]   # short code: 'Tier 1' / 'Tier 2' / etc.
+            st.caption(f"Stored as: **{city_tier}**")
             kyc_verified = st.selectbox("KYC Verified", ['Yes', 'No'],
                 index=0 if st.session_state.get('pdf_kyc', True) else 1) == 'Yes'
         with col4:
@@ -14798,7 +14807,7 @@ elif page == "👤 Assessment":
                     except Exception as e:
                         st.error(f"Error generating PDF: {str(e)}")
                 else:
-                    st.warning("PDF generation not available.")
+                    st.warning("⚠️ PDF download unavailable — `reportlab` or `pdf_generator.py` not found. Check requirements.txt.")
             with col2:
                 if st.button("🔄 Re-Evaluate", key="reevaluate_btn", use_container_width=True):
                     st.rerun()
@@ -14831,7 +14840,7 @@ elif page == "👤 Assessment":
                 'risk_score': decision_data.get('risk_score', 0),
                 'pd_percentage': decision_data.get('pd_percentage', 0),
                 'confidence': round(decision_data.get('confidence', 0), 2),
-                'model_version': '8.7',
+                'model_version': '8.6',
                 'gender': gender, 'city_tier': city_tier,
                 'rbi_consent': rbi_consent,
                 'reason_codes': reasons,
@@ -14852,7 +14861,7 @@ elif page == "👤 Assessment":
                     except Exception as e:
                         st.error(f"Error generating audit PDF: {str(e)}")
                 else:
-                    st.warning("Audit PDF generation is not available.")
+                    st.warning("⚠️ Audit PDF download unavailable — `reportlab` or `pdf_generator.py` not found. Check requirements.txt.")
             with col2:
                 st.download_button("📥 Download Audit Log (JSON)",
                                    data=json.dumps(audit_log, indent=2),
@@ -14909,7 +14918,7 @@ elif page == "🔬 Stage 2 Analysis":
                 cibil_score = st.number_input("Credit Score", 300, 900, 720, 10)
                 max_delinquency = st.number_input("Max Delinquency Level", 0, 100, 0)
                 num_times_30dpd = st.number_input("Times 30+ DPD", 0, 50, 0)
-                num_times_60dpd = st.number_input("Times 60+ DPD (used as 90+ proxy)", 0, 50, 0)
+                num_times_60dpd = st.number_input("Times 60+ DPD", 0, 50, 0)
                 num_times_delinquent = st.number_input("Total Delinquent", 0, 50, 0)
             with col3:
                 st.markdown("**Recent Behavior**")
@@ -14962,7 +14971,7 @@ elif page == "🔬 Stage 2 Analysis":
                 enhanced_customer_data.update({
                     'bureau_score': cibil_score, 'age': age_cibil,
                     'avg_salary_6m': _final_income, 'employment_tenure_months': time_curr_employer,
-                    'dpd_30_count_6m': num_times_30dpd, 'dpd_90_count_6m': num_times_60dpd,  # NOTE: stage2 form calls this 'Times 60+ DPD' but maps to 90 field
+                    'dpd_30_count_6m': num_times_30dpd, 'dpd_90_count_6m': num_times_60dpd,
                     'max_delinquency_level': max_delinquency, 'num_times_delinquent': num_times_delinquent,
                     'num_deliq_6mts': num_deliq_6m, 'num_deliq_12mts': num_deliq_12m,
                     'max_deliq_6mts': max_deliq_6m, 'max_deliq_12mts': max_deliq_12m,
@@ -15165,7 +15174,7 @@ elif page == "📊 Batch Process":
         st.dataframe(template_df, use_container_width=True)
         st.caption("📝 New columns: `gender`, `city_tier`, `rbi_consent` — required for fairness monitoring and compliance.")
         st.download_button("📥 Download CSV Template", data=template_df.to_csv(index=False),
-                           file_name="credit_assessment_template_v8.7.csv",
+                           file_name="credit_assessment_template_v8.6.csv",
                            mime="text/csv", use_container_width=True)
 
 elif page == "📈 Model Info":
@@ -15185,7 +15194,7 @@ elif page == "ℹ️ About":
         <div class="info-card">
             <div class="info-card-title">🏦 Credit Risk Assessment Platform</div>
             <div class="info-card-content">
-                <p><strong>Version:</strong> 8.7 — DPD three-tier gate + FOIR REVIEW zone + Risk score 0-100 fix + Fairness Monitoring</p>
+                <p><strong>Version:</strong> 8.6 — Cleaned codebase + Fairness Monitoring + City Tier + RBI Consent</p>
                 <p><strong>Developer:</strong> Zen Meraki</p>
                 <p><strong>Date:</strong> January 2026</p>
                 <br>
@@ -15228,3 +15237,4 @@ elif page == "ℹ️ About":
                 </ul></div>
             </div>
         """, unsafe_allow_html=True)
+
