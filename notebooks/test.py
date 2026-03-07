@@ -12725,7 +12725,6 @@
 
 
 
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -14734,9 +14733,9 @@ elif page == "👤 Assessment":
 
             st.markdown("<br>", unsafe_allow_html=True)
             affordability = decision_data.get('affordability_data', {})
-            foir = affordability.get('foir_percentage', 0)
-            total_emi = affordability.get('total_emi', 0)
-            net_disp = affordability.get('net_disposable', 0)
+            foir      = affordability.get('foir_percentage', 0)
+            total_emi = int(round(affordability.get('total_emi', 0)))
+            net_disp  = int(round(affordability.get('net_disposable', 0)))
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -14984,52 +14983,58 @@ elif page == "🔬 Stage 2 Analysis":
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                     if extraction_result.get('success', False):
                         st.success("✅ PDF extraction successful!")
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Credit Score", extraction_result.get('Credit_Score', 'N/A'))
-                        col2.metric("Times 30+ DPD", extraction_result.get('num_times_30p_dpd', 0))
-                        col3.metric("Times 60+ DPD", extraction_result.get('num_times_60p_dpd', 0))
-                        col4.metric("Active Accounts", extraction_result.get('num_std', 0))
 
+                        # ── Summary metrics ──────────────────────────────────
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Credit Score",    extraction_result.get('Credit_Score', 'N/A'))
+                        c2.metric("DPD 30+ Count",   extraction_result.get('num_times_30p_dpd', 0))
+                        c3.metric("DPD 60+ Count",   extraction_result.get('num_times_60p_dpd', 0))
+                        c4.metric("Active Accounts", extraction_result.get('num_std', 0))
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Monthly Income", f"₹{extraction_result.get('NETMONTHLYINCOME', 0):,}")
+                        c2.metric("Employment Tenure", f"{extraction_result.get('Time_With_Curr_Empr',0)} mo")
+                        c3.metric("Written Off",    extraction_result.get('num_lss', 0))
+                        c4.metric("Enquiries (3M)", extraction_result.get('enq_L3m', 0))
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Payment Discipline", extraction_result.get('payment_discipline_flag','—'))
+                        c2.metric("Cashflow Health",    extraction_result.get('cashflow_health','—'))
+                        c3.metric("Bureau Risk",        extraction_result.get('bureau_risk_flag','—'))
+                        c4.metric("Salary Stability",   extraction_result.get('salary_stability_flag','—'))
+
+                        if extraction_result.get('written_off_count', 0) > 0:
+                            st.warning(f"⚠️ {extraction_result['written_off_count']} written-off accounts detected — score may be overridden.")
+
+                        _surplus_proxy = extraction_result.get('_surplus_proxy', 0)
+                        if _surplus_proxy:
+                            st.info(f"💡 Bureau-only PDF — net surplus estimated from income: ₹{_surplus_proxy:,}")
+
+                        with st.expander("📋 View all extracted fields"):
+                            _display = {k: v for k, v in extraction_result.items() if k not in ('raw_text','success','extraction_method')}
+                            st.json(_display)
+
+                        # ── Build enhanced_customer_data ─────────────────────
+                        # Start from Stage 1 customer (has gender, city_tier, rbi_consent, loan details)
                         enhanced_customer_data = stage1_customer.copy()
-                        _s1_income = stage1_customer.get('avg_salary_6m', 50000)
-                        _s2_income = extraction_result.get('NETMONTHLYINCOME', 0)
-                        _use_income = _s1_income if (_s2_income > 0 and _s2_income < _s1_income * 0.4) else (_s2_income or _s1_income)
-                        enhanced_customer_data.update({
-                            'bureau_score': extraction_result.get('Credit_Score', 720),
-                            'age': extraction_result.get('AGE', stage1_customer.get('age', 35)),
-                            'avg_salary_6m': _use_income,
-                            'employment_tenure_months': extraction_result.get('Time_With_Curr_Empr', stage1_customer.get('employment_tenure_months', 24)),
-                            'dpd_30_count_6m': extraction_result.get('num_times_30p_dpd', 0),
-                            'dpd_90_count_6m': extraction_result.get('dpd_90_count_6m', 0),
-                            'max_delinquency_level': extraction_result.get('max_delinquency_level', 0),
-                            'num_times_delinquent': extraction_result.get('num_times_delinquent', 0),
-                            'num_deliq_6mts': extraction_result.get('num_deliq_6mts', 0),
-                            'num_deliq_12mts': extraction_result.get('num_deliq_12mts', 0),
-                            'max_deliq_6mts': extraction_result.get('max_deliq_6mts', 0),
-                            'max_deliq_12mts': extraction_result.get('max_deliq_12mts', 0),
-                            'recent_inquiries_3m': extraction_result.get('enq_L3m', 2),
-                            'enq_L6m': extraction_result.get('enq_L6m', 4),
-                            'enq_L12m': extraction_result.get('enq_L12m', 6),
-                            'active_loans_count': extraction_result.get('num_std', 1),
-                            'num_std_6mts': extraction_result.get('num_std_6mts', 0),
-                            'num_std_12mts': extraction_result.get('num_std_12mts', 0),
-                            'num_sub': extraction_result.get('num_sub', 0),
-                            'num_sub_6mts': extraction_result.get('num_sub_6mts', 0),
-                            'num_dbt': extraction_result.get('num_dbt', 0),
-                            'num_lss': extraction_result.get('num_lss', 0),
-                            'credit_utilization_pct': (0 if extraction_result.get('CC_utilization', 0) < 0 else extraction_result.get('CC_utilization', 0.35)) * 100,
-                            'CC_utilization': max(0, extraction_result.get('CC_utilization', 0.35) or 0),
-                            'PL_utilization': max(0, extraction_result.get('PL_utilization', 0.25) or 0),
-                            'pct_of_active_TLs_ever': extraction_result.get('pct_of_active_TLs_ever', 0.6),
-                            'pct_currentBal_all_TL': extraction_result.get('pct_currentBal_all_TL', 0.3),
-                            'max_unsec_exposure_inPct': extraction_result.get('max_unsec_exposure_inPct', 30),
-                            'CC_Flag': extraction_result.get('CC_Flag', 0),
-                            'PL_Flag': extraction_result.get('PL_Flag', 0),
-                            'HL_Flag': extraction_result.get('HL_Flag', 0),
-                            'GL_Flag': extraction_result.get('GL_Flag', 0),
-                            'written_off_count': extraction_result.get('written_off_count', 0),
-                        })
+
+                        # Apply ALL extracted fields directly — the new extractor maps every column
+                        _skip = {'raw_text', 'success', 'extraction_method',
+                                 'loan_amount', 'loan_tenure_months', 'interest_rate',
+                                 'rbi_consent', 'kyc_verified', 'bankruptcy_flag', 'fraud_flag'}
+                        for k, v in extraction_result.items():
+                            if k not in _skip and v is not None:
+                                enhanced_customer_data[k] = v
+
+                        # Income safety: if CIBIL income << Stage 1 application income, keep Stage 1
+                        _s1_inc = stage1_customer.get('avg_salary_6m', 50000)
+                        _s2_inc = extraction_result.get('NETMONTHLYINCOME', 0) or 0
+                        if 0 < _s2_inc < _s1_inc * 0.4:
+                            enhanced_customer_data['avg_salary_6m'] = _s1_inc
+                            enhanced_customer_data['AMT_INCOME_TOTAL'] = _s1_inc * 12
+                            st.warning(f"⚠️ CIBIL income ₹{_s2_inc:,} << application income ₹{_s1_inc:,} — using application income for FOIR.")
+
+                        # Sentinel cleanup
                         enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
+
                         with st.spinner("🔬 Running Stage 2 analysis..."):
                             try:
                                 stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
@@ -15037,6 +15042,7 @@ elif page == "🔬 Stage 2 Analysis":
                                 display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data)
                             except Exception as e:
                                 st.error(f"❌ Analysis failed: {str(e)}")
+                                st.exception(e)
                     else:
                         st.error("❌ PDF extraction failed: " + extraction_result.get('error', 'Unknown'))
 
