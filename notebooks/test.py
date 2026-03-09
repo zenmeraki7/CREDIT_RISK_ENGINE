@@ -12906,7 +12906,7 @@ if not OCR_EXTRACTOR_AVAILABLE:
             return income * 0.3
 
 
-    def infer_categorical_flags(extraction_result: dict) -> dict:
+def infer_categorical_flags(extraction_result: dict) -> dict:
         score       = int(extraction_result.get('Credit_Score', 700) or 700)
         dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
         dpd_60      = int(extraction_result.get('num_times_60p_dpd', 0) or 0)
@@ -12918,8 +12918,8 @@ if not OCR_EXTRACTOR_AVAILABLE:
 
         income = float(
             extraction_result.get('NETMONTHLYINCOME', 0)
-            or extraction_result.get('avg_salary_6m', 50000)
-            or 50000
+            or extraction_result.get('avg_salary_6m', 50_000)
+            or 50_000
         )
 
         tenure = int(extraction_result.get('Time_With_Curr_Empr', 24) or 24)
@@ -12929,41 +12929,57 @@ if not OCR_EXTRACTOR_AVAILABLE:
             and 'net_cash_surplus_6m' not in extraction_result
             and 'net_surplus' not in extraction_result
         )
-    if is_bureau_only:
-        dpd_90_proxy = dpd_60
-        surplus = _infer_surplus_from_cibil(score, dpd_60, dpd_30, income)
-        payment_discipline = 'POOR' if (dpd_60 >= 1 or dpd_30 >= 3) else ('MODERATE' if dpd_30 >= 1 else 'GOOD')
-        cashflow_health = ('HEALTHY' if surplus >= 14_000 else 'STABLE' if surplus >= 600 else 'STRESSED' if surplus < -1_000 else 'MODERATE')
-        liquidity_flag  = ('ADEQUATE' if surplus > 14_000 else 'LOW' if surplus < -32_000 else 'MODERATE')
-        bureau_risk     = ('HIGH' if (written_off >= 1 or doubtful >= 1 or dpd_60 >= 3 or score < 580)
-                           else 'MEDIUM' if (score < 650 or (dpd_30 >= 2 and cc_util > 0.60)) else 'LOW')
-        salary_stability = ('UNSTABLE' if tenure < 6 else 'STABLE' if (tenure >= 24 and score >= 700 and dpd_30 == 0) else 'MODERATE')
-    else:
+
         dpd_90      = int(extraction_result.get('dpd_90_count_6m', 0) or 0)
         bounces     = int(extraction_result.get('inward_bounce_count_3m', 0) or 0)
         missing     = int(extraction_result.get('salary_missing_months', 0) or 0)
         hard_reject = int(extraction_result.get('hard_reject_flag', 0) or 0)
-        surplus     = float(extraction_result.get('net_cash_surplus_6m') or extraction_result.get('net_surplus') or -50_000)
-        payment_discipline = ('POOR' if (dpd_90 >= 1 or bounces >= 2)
-                               else 'MODERATE' if (bounces == 1 or dpd_30 >= 3) else 'GOOD')
-        cashflow_health = ('HEALTHY' if surplus >= 14_000 else 'STABLE' if 600 <= surplus < 14_000
-                            else 'STRESSED' if surplus < -1_000 else 'MODERATE')
-        liquidity_flag  = 'ADEQUATE' if surplus > 14_000 else 'LOW' if surplus < -32_000 else 'MODERATE'
-        bureau_risk     = ('HIGH' if (hard_reject or dpd_90 >= 3 or written_off >= 1 or (dpd_90 >= 1 and dpd_30 >= 2))
-                           else 'MEDIUM' if (score < 580 or (dpd_30 >= 2 and cc_util > 0.60)) else 'LOW')
-        salary_stability = ('UNSTABLE' if missing >= 1
-                             else 'STABLE' if (missing == 0 and score >= 700 and dpd_30 == 0 and bounces == 0)
-                             else 'MODERATE')
-        surplus_for_return = surplus
 
-    return {
-        'payment_discipline_flag': payment_discipline,
-        'cashflow_health':         cashflow_health,
-        'liquidity_flag':          liquidity_flag,
-        'bureau_risk_flag':        bureau_risk,
-        'salary_stability_flag':   salary_stability,
-        '_inference_path':         'bureau_only' if is_bureau_only else 'bank_statement',
-    }
+        surplus = float(
+            extraction_result.get('net_cash_surplus_6m')
+            or extraction_result.get('net_surplus')
+            or -50000
+        )
+
+        payment_discipline = (
+            'POOR' if (dpd_90 >= 1 or bounces >= 2)
+            else 'MODERATE' if (bounces == 1 or dpd_30 >= 3)
+            else 'GOOD'
+        )
+
+        cashflow_health = (
+            'HEALTHY' if surplus >= 14000
+            else 'STABLE' if 600 <= surplus < 14000
+            else 'STRESSED' if surplus < -1000
+            else 'MODERATE'
+        )
+
+        liquidity_flag = (
+            'ADEQUATE' if surplus > 14000
+            else 'LOW' if surplus < -32000
+            else 'MODERATE'
+        )
+
+        bureau_risk = (
+            'HIGH' if (hard_reject or dpd_90 >= 3 or written_off >= 1 or (dpd_90 >= 1 and dpd_30 >= 2))
+            else 'MEDIUM' if (score < 580 or (dpd_30 >= 2 and cc_util > 0.60))
+            else 'LOW'
+        )
+
+        salary_stability = (
+            'UNSTABLE' if missing >= 1
+            else 'STABLE' if (missing == 0 and score >= 700 and dpd_30 == 0 and bounces == 0)
+            else 'MODERATE'
+        )
+
+        return {
+            'payment_discipline_flag': payment_discipline,
+            'cashflow_health': cashflow_health,
+            'liquidity_flag': liquidity_flag,
+            'bureau_risk_flag': bureau_risk,
+            'salary_stability_flag': salary_stability,
+            '_inference_path': 'bureau_only' if is_bureau_only else 'bank_statement',
+        }
 
 # =============================================================================
 # CIBIL PDF EXTRACTION ENGINE (OCR + PATTERN MATCHING) — INLINE FALLBACK ONLY
