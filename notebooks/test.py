@@ -12893,13 +12893,18 @@ except ImportError:
         pass  # Will fall back to inline versions below if module not found
 
 if not OCR_EXTRACTOR_AVAILABLE:
-    # ── Fallback: inline stubs (kept for backward compatibility) ──────────────
-    def _infer_surplus_from_cibil(score: int, dpd_60: int, dpd_30: int, income: float) -> float:
-    if dpd_60 >= 3: return income * -0.5
-    elif score < 650 or dpd_60 >= 1: return income * -0.2
-    elif score < 700: return income * 0.1
-    else: return income * 0.3
+    # --- Fallback: inline stubs (kept for backward compatibility) ----
 
+    def _infer_surplus_from_cibil(score: int, dpd_60: int, dpd_30: int, income: float) -> float:
+        if dpd_60 >= 3:
+            return income * -0.5
+        elif score < 650 or dpd_60 >= 1:
+            return income * -0.2
+        elif score < 700:
+            return income * 0.1
+        else:
+            return income * 0.3
+                
 def infer_categorical_flags(extraction_result: dict) -> dict:
     score       = int(extraction_result.get('Credit_Score', 700) or 700)
     dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
