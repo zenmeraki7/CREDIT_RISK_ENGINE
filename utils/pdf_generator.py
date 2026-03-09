@@ -2093,162 +2093,276 @@
 
 
 """
-PDF Generation Utility for Credit Risk Assessment
-Author: Zen Meraki
-Version: 8.7 — Corrected field names, risk score /100, DPD tiers, v8.7 footer
+PDF Generation Utility — Credit Risk Assessment System v8.7
+===========================================================
+Two public functions:
+
+  generate_decision_pdf(decision_data, customer_data, affordability_data, reasons)
+      → BytesIO   Stage 1 quick-summary report (single page, letter size)
+
+  generate_audit_pdf(audit_log)
+      → BytesIO   Full audit trail: policy gates, PD breakdown, Stage 2 (optional)
+
+Both return a seeked BytesIO buffer ready for st.download_button / HTTP response.
 """
 
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-                                Table, TableStyle, PageBreak)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib import colors
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
 from io import BytesIO
 from datetime import datetime
 
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer,
+    Table, TableStyle, HRFlowable,
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
 
 # ---------------------------------------------------------------------------
-# SHARED STYLE HELPERS
+# Brand palette
 # ---------------------------------------------------------------------------
-_BRAND   = colors.HexColor('#587042')
-_LIGHT   = colors.HexColor('#f7fafc')
-_GREY    = colors.HexColor('#e2e8f0')
-_GREEN   = colors.HexColor('#48bb78')
-_RED     = colors.HexColor('#f56565')
-_ORANGE  = colors.HexColor('#ed8936')
+_BRAND  = colors.HexColor('#1a365d')   # deep navy  — section headings
+_ACCENT = colors.HexColor('#2b6cb0')   # mid-blue   — heading background
+_LIGHT  = colors.HexColor('#ebf4ff')   # pale blue  — label cell background
+_GREY   = colors.HexColor('#cbd5e0')   # silver     — grid lines
+_GREEN  = colors.HexColor('#276749')   # forest green — APPROVE
+_RED    = colors.HexColor('#c53030')   # red        — REJECT
+_ORANGE = colors.HexColor('#c05621')   # burnt orange — REVIEW
 
-def _styles():
-    base = getSampleStyleSheet()
-    title = ParagraphStyle('CRTitle', parent=base['Heading1'],
-                           fontSize=20, textColor=_BRAND,
-                           spaceAfter=10, alignment=1)
-    heading = ParagraphStyle('CRHeading', parent=base['Heading2'],
-                             fontSize=13, textColor=_BRAND,
-                             spaceAfter=6, spaceBefore=10)
-    small = ParagraphStyle('CRSmall', parent=base['Normal'],
-                           fontSize=8, textColor=colors.grey, alignment=1)
-    return base, title, heading, small
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
-
-def _label_table(rows, col_widths, label_cols=(0,)):
-    """Two-or-four column key-value table with shaded label cells."""
-    t = Table(rows, colWidths=col_widths)
-    style = [
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN',     (0, 0), (-1, -1), 'LEFT'),
-        ('FONTSIZE',  (0, 0), (-1, -1), 9),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('GRID',      (0, 0), (-1, -1), 0.5, _GREY),
-    ]
-    for col in label_cols:
-        style.append(('BACKGROUND', (col, 0), (col, -1), _LIGHT))
-        style.append(('FONTNAME',   (col, 0), (col, -1), 'Helvetica-Bold'))
-    t.setStyle(TableStyle(style))
-    return t
-
-
-def _safe_int(v, default=0):
+def _safe_int(v, default: int = 0) -> int:
     try:
         return int(round(float(v)))
     except (TypeError, ValueError):
         return default
 
 
-def _safe_float(v, default=0.0):
+def _safe_float(v, default: float = 0.0) -> float:
     try:
         return float(v)
     except (TypeError, ValueError):
         return default
 
 
-# ---------------------------------------------------------------------------
-# DECISION REPORT  (Stage 1 — quick summary)
-# ---------------------------------------------------------------------------
-def generate_decision_pdf(decision_data, customer_data, affordability_data, reasons):
-    """
-    Generate the Stage 1 decision summary PDF.
+def _styles():
+    """Return (base, title_style, heading_style, sub_style, small_style)."""
+    base = getSampleStyleSheet()
 
-    All numbers are taken directly from the dicts passed in — no re-calculation.
-    Risk score is shown /100 (engine produces 0-100, not 0-1000).
+    title = ParagraphStyle(
+        'CRTitle', parent=base['Heading1'],
+        fontSize=18, textColor=_BRAND,
+        spaceAfter=6, spaceBefore=0,
+        alignment=1,
+        fontName='Helvetica-Bold',
+    )
+    heading = ParagraphStyle(
+        'CRHeading', parent=base['Heading2'],
+        fontSize=10.5, textColor=colors.white,
+        spaceAfter=4, spaceBefore=10,
+        fontName='Helvetica-Bold',
+        backColor=_ACCENT,
+        leftIndent=-4, rightIndent=-4,
+        borderPad=4,
+    )
+    sub = ParagraphStyle(
+        'CRSub', parent=base['Normal'],
+        fontSize=9, textColor=_BRAND,
+        fontName='Helvetica-Bold',
+        spaceAfter=2, spaceBefore=6,
+    )
+    small = ParagraphStyle(
+        'CRSmall', parent=base['Normal'],
+        fontSize=7.5, textColor=colors.grey,
+        alignment=1,
+    )
+    return base, title, heading, sub, small
+
+
+def _label_table(rows, col_widths, label_cols=(0,)):
+    """
+    Shaded key-value table.
+
+    rows        — list of lists
+    col_widths  — list of floats (already multiplied by inch)
+    label_cols  — column indices to shade as labels
+    """
+    t = Table(rows, colWidths=col_widths)
+    style = [
+        ('TEXTCOLOR',      (0, 0), (-1, -1), colors.black),
+        ('ALIGN',          (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN',         (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTSIZE',       (0, 0), (-1, -1), 8.5),
+        ('TOPPADDING',     (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING',  (0, 0), (-1, -1), 5),
+        ('LEFTPADDING',    (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING',   (0, 0), (-1, -1), 6),
+        ('GRID',           (0, 0), (-1, -1), 0.4, _GREY),
+        ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.white, colors.HexColor('#f7fbff')]),
+    ]
+    for col in label_cols:
+        style += [
+            ('BACKGROUND', (col, 0), (col, -1), _LIGHT),
+            ('FONTNAME',   (col, 0), (col, -1), 'Helvetica-Bold'),
+            ('TEXTCOLOR',  (col, 0), (col, -1), _BRAND),
+        ]
+    t.setStyle(TableStyle(style))
+    return t
+
+
+def _banner(text: str, color) -> Table:
+    """Full-width coloured decision banner."""
+    t = Table([[text]], colWidths=[7.0 * inch])
+    t.setStyle(TableStyle([
+        ('BACKGROUND',    (0, 0), (-1, -1), color),
+        ('TEXTCOLOR',     (0, 0), (-1, -1), colors.white),
+        ('FONTNAME',      (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE',      (0, 0), (-1, -1), 18),
+        ('ALIGN',         (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING',    (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    return t
+
+
+def _section_rule():
+    return HRFlowable(width='100%', thickness=0.5, color=_GREY,
+                      spaceAfter=4, spaceBefore=4)
+
+
+# ---------------------------------------------------------------------------
+# DECISION REPORT  (Stage 1 summary)
+# ---------------------------------------------------------------------------
+
+def generate_decision_pdf(decision_data: dict, customer_data: dict,
+                           affordability_data: dict, reasons: list) -> BytesIO:
+    """
+    Generate the Stage 1 credit decision summary PDF.
+
+    Parameters
+    ----------
+    decision_data : dict
+        decision           — 'APPROVE' | 'REJECT' | 'REVIEW'
+        risk_score         — int  (0-100 scale, Stage 1 engine output)
+        pd_percentage      — float  (%)
+        confidence         — float  (%)
+
+    customer_data : dict
+        application_id, timestamp,
+        age, employment_type, avg_salary_6m, bureau_score,
+        loan_amount, loan_tenure_months, interest_rate,
+        kyc_verified, gender, city_tier, rbi_consent,
+        dpd_90_count_6m, dpd_30_count_6m, credit_utilization_pct,
+        active_loans_count, salary_stability_flag, payment_discipline_flag,
+        net_cash_surplus_6m
+
+    affordability_data : dict
+        new_emi, existing_emi, total_emi, foir_percentage,
+        net_disposable, status, max_allowed_emi, emi_headroom
+
+    reasons : list[str]
+        Human-readable decision reason strings.
+
+    Returns
+    -------
+    BytesIO — seeked PDF buffer ready for download
     """
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter,
-                            topMargin=0.5*inch, bottomMargin=0.5*inch,
-                            leftMargin=0.6*inch, rightMargin=0.6*inch)
-    base, title_style, heading_style, small_style = _styles()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        topMargin=0.45 * inch, bottomMargin=0.45 * inch,
+        leftMargin=0.65 * inch, rightMargin=0.65 * inch,
+    )
+    base, title_style, heading_style, sub_style, small_style = _styles()
     story = []
 
-    # ── Title ────────────────────────────────────────────────────────────────
+    # ── Title ─────────────────────────────────────────────────────────────────
     story.append(Paragraph("CREDIT DECISION REPORT", title_style))
-    story.append(Spacer(1, 0.15*inch))
+    story.append(Spacer(1, 0.06 * inch))
+
+    # ── App ID / timestamp header bar ─────────────────────────────────────────
+    app_id    = customer_data.get('application_id', 'N/A')
+    timestamp = customer_data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    story.append(_label_table(
+        [['Application ID:', app_id, 'Generated:', timestamp]],
+        [1.4 * inch, 2.4 * inch, 1.2 * inch, 2.0 * inch],
+        label_cols=(0, 2),
+    ))
+    story.append(Spacer(1, 0.12 * inch))
 
     # ── Decision banner ───────────────────────────────────────────────────────
-    decision   = decision_data.get('decision', 'ERROR')
-    risk_score = _safe_int(decision_data.get('risk_score', 0))
-    pd_pct     = _safe_float(decision_data.get('pd_percentage', 0))
-    confidence = _safe_float(decision_data.get('confidence', 0))
-    app_id     = customer_data.get('application_id', 'N/A')
-    timestamp  = customer_data.get('timestamp',
-                                   datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
+    decision = decision_data.get('decision', 'ERROR')
     if decision == 'APPROVE':
-        dec_color, dec_icon = _GREEN,  "APPROVED"
+        banner_color, banner_text = _GREEN,  'APPROVED'
     elif decision == 'REJECT':
-        dec_color, dec_icon = _RED,    "REJECTED"
+        banner_color, banner_text = _RED,    'REJECTED'
     else:
-        dec_color, dec_icon = _ORANGE, "REVIEW REQUIRED"
+        banner_color, banner_text = _ORANGE, 'REVIEW REQUIRED'
 
-    dec_style = ParagraphStyle('DecBanner', parent=base['Normal'],
-                               fontSize=16, textColor=dec_color,
-                               fontName='Helvetica-Bold', alignment=1,
-                               spaceAfter=8)
-    story.append(Paragraph(dec_icon, dec_style))
+    story.append(_banner(banner_text, banner_color))
+    story.append(Spacer(1, 0.14 * inch))
 
-    # ── Header table: App ID / Timestamp / Risk Score / PD / Confidence ──────
+    # ── Key decision metrics ──────────────────────────────────────────────────
+    risk_score   = _safe_int(decision_data.get('risk_score', 0))
+    pd_pct       = _safe_float(decision_data.get('pd_percentage', 0))
+    confidence   = _safe_float(decision_data.get('confidence', 0))
+    bureau_score = _safe_int(customer_data.get('bureau_score', 0))
+
+    story.append(Paragraph("DECISION METRICS", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
     story.append(_label_table([
-        ['Application ID:', app_id,    'Timestamp:',   timestamp],
-        ['Decision:',       decision,   'Risk Score:',  f"{risk_score}/100"],
-        ['PD Score:',       f"{pd_pct:.2f}%", 'Confidence:', f"{confidence:.1f}%"],
-    ], [1.3*inch, 2.2*inch, 1.3*inch, 2.2*inch], label_cols=(0, 2)))
-    story.append(Spacer(1, 0.25*inch))
+        ['Risk Score (0-100):',        f"{risk_score}/100",
+         'PD — Prob. of Default:',     f"{pd_pct:.2f}%"],
+        ['Model Confidence:',          f"{confidence:.1f}%",
+         'Bureau / CIBIL Score:',      str(bureau_score)],
+    ], [1.8 * inch, 1.7 * inch, 1.9 * inch, 1.6 * inch], label_cols=(0, 2)))
+    story.append(Spacer(1, 0.14 * inch))
 
     # ── Customer information ──────────────────────────────────────────────────
     story.append(Paragraph("CUSTOMER INFORMATION", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
 
-    age             = _safe_int(customer_data.get('age', 0))
-    emp_type        = customer_data.get('employment_type', 'N/A')
-    income          = _safe_int(customer_data.get('avg_salary_6m', 0))
-    bureau_score    = _safe_int(customer_data.get('bureau_score', 0))
-    loan_amount     = _safe_int(customer_data.get('loan_amount', 0))
-    loan_tenure     = _safe_int(customer_data.get('loan_tenure_months', 0))
-    interest_rate   = _safe_float(customer_data.get('interest_rate', 0))
-    kyc             = 'Verified' if customer_data.get('kyc_verified', True) else 'Not Verified'
-    gender          = customer_data.get('gender', 'N/A')
-    city_tier       = customer_data.get('city_tier', 'N/A')
-    rbi_consent     = 'Obtained' if customer_data.get('rbi_consent', False) else 'Not Obtained'
-    dpd_90          = _safe_int(customer_data.get('dpd_90_count_6m', 0))
-    dpd_30          = _safe_int(customer_data.get('dpd_30_count_6m', 0))
-    credit_util     = _safe_float(customer_data.get('credit_utilization_pct', 0))
-    active_loans    = _safe_int(customer_data.get('active_loans_count', 0))
-    salary_stab     = customer_data.get('salary_stability_flag', 'N/A')
-    pay_disc        = customer_data.get('payment_discipline_flag', 'N/A')
+    age          = _safe_int(customer_data.get('age', 0))
+    emp_type     = customer_data.get('employment_type', 'N/A')
+    income       = _safe_int(customer_data.get('avg_salary_6m', 0))
+    loan_amount  = _safe_int(customer_data.get('loan_amount', 0))
+    loan_tenure  = _safe_int(customer_data.get('loan_tenure_months', 0))
+    int_rate     = _safe_float(customer_data.get('interest_rate', 0))
+    kyc          = 'Verified' if customer_data.get('kyc_verified', True) else 'Not Verified'
+    gender       = customer_data.get('gender', 'N/A')
+    city_tier    = customer_data.get('city_tier', 'N/A')
+    rbi_consent  = 'Obtained' if customer_data.get('rbi_consent', False) else 'Not Obtained'
+    active_loans = _safe_int(customer_data.get('active_loans_count', 0))
+    dpd_90       = _safe_int(customer_data.get('dpd_90_count_6m', 0))
+    dpd_30       = _safe_int(customer_data.get('dpd_30_count_6m', 0))
+    credit_util  = _safe_float(customer_data.get('credit_utilization_pct', 0))
+    salary_stab  = customer_data.get('salary_stability_flag', 'N/A')
+    pay_disc     = customer_data.get('payment_discipline_flag', 'N/A')
+    net_surplus  = _safe_int(customer_data.get('net_cash_surplus_6m', 0))
 
     story.append(_label_table([
-        ['Age:',            str(age),                 'Employment:',      emp_type],
-        ['Gender:',         gender,                   'City Tier:',       city_tier],
-        ['Monthly Income:', f"Rs.{income:,}",         'Bureau Score:',    str(bureau_score)],
-        ['Loan Amount:',    f"Rs.{loan_amount:,}",    'Tenure:',          f"{loan_tenure} months"],
-        ['Interest Rate:',  f"{interest_rate:.2f}%",  'KYC Status:',      kyc],
-        ['RBI Consent:',    rbi_consent,              'Active Loans:',    str(active_loans)],
-        ['DPD 90+ (6M):',   str(dpd_90),             'DPD 30+ (6M):',   str(dpd_30)],
-        ['Credit Util.:',   f"{credit_util:.1f}%",    'Salary Stability:', salary_stab],
-        ['Payment Discipline:', pay_disc,             '', ''],
-    ], [1.5*inch, 2.0*inch, 1.5*inch, 2.0*inch], label_cols=(0, 2)))
-    story.append(Spacer(1, 0.25*inch))
+        ['Age:',              str(age),               'Employment Type:',    emp_type],
+        ['Gender:',           gender,                 'City Tier:',          city_tier],
+        ['Monthly Income:',   f"Rs.{income:,}",       'Bureau Score:',       str(bureau_score)],
+        ['Loan Amount:',      f"Rs.{loan_amount:,}",  'Tenure:',             f"{loan_tenure} months"],
+        ['Interest Rate:',    f"{int_rate:.2f}%",     'KYC Status:',         kyc],
+        ['RBI Consent:',      rbi_consent,            'Active Loans:',       str(active_loans)],
+        ['DPD 90+ (6M):',     str(dpd_90),            'DPD 30+ (6M):',       str(dpd_30)],
+        ['Credit Util.:',     f"{credit_util:.1f}%",  'Net Cash Surplus:',   f"Rs.{net_surplus:,}"],
+        ['Salary Stability:', salary_stab,            'Payment Discipline:', pay_disc],
+    ], [1.6 * inch, 1.9 * inch, 1.7 * inch, 1.8 * inch], label_cols=(0, 2)))
+    story.append(Spacer(1, 0.14 * inch))
 
     # ── Affordability analysis ────────────────────────────────────────────────
     story.append(Paragraph("AFFORDABILITY ANALYSIS", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
 
     new_emi      = _safe_float(affordability_data.get('new_emi', 0))
     existing_emi = _safe_float(affordability_data.get('existing_emi', 0))
@@ -2259,60 +2373,82 @@ def generate_decision_pdf(decision_data, customer_data, affordability_data, reas
     max_emi      = _safe_float(affordability_data.get('max_allowed_emi', 0))
     emi_headroom = _safe_float(affordability_data.get('emi_headroom', 0))
 
-    story.append(_label_table([
-        ['New EMI:',         f"Rs.{new_emi:,.0f}",      'Existing EMI:',   f"Rs.{existing_emi:,.0f}"],
-        ['Total EMI:',       f"Rs.{total_emi:,.0f}",    'FOIR:',           f"{foir:.2f}%"],
-        ['Net Disposable:',  f"Rs.{net_disp:,.0f}",     'Status:',         aff_status],
-        ['Max Allowed EMI:', f"Rs.{max_emi:,.0f}",      'EMI Headroom:',   f"Rs.{emi_headroom:,.0f}"],
-    ], [1.5*inch, 2.0*inch, 1.5*inch, 2.0*inch], label_cols=(0, 2)))
-    story.append(Spacer(1, 0.25*inch))
-
-    # ── Decision reasons ──────────────────────────────────────────────────────
-    story.append(Paragraph("DECISION REASONS", heading_style))
-    if reasons:
-        reason_rows = [[f"{i}.", r] for i, r in enumerate(reasons, 1)]
-        rt = Table(reason_rows, colWidths=[0.4*inch, 6.6*inch])
-        rt.setStyle(TableStyle([
-            ('TEXTCOLOR',     (0, 0), (-1, -1), colors.black),
-            ('ALIGN',         (0, 0), (0, -1),  'RIGHT'),
-            ('ALIGN',         (1, 0), (1, -1),  'LEFT'),
-            ('FONTSIZE',      (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
-        ]))
-        story.append(rt)
-    story.append(Spacer(1, 0.25*inch))
-
-    # ── Risk assessment ───────────────────────────────────────────────────────
-    story.append(Paragraph("RISK ASSESSMENT", heading_style))
-
-    # DPD tier label
-    if dpd_90 == 0:
-        dpd_label = f"{dpd_90} (Clean)"
-    elif dpd_90 == 1:
-        dpd_label = f"{dpd_90} (Acceptable)"
-    elif dpd_90 <= 5:
-        dpd_label = f"{dpd_90} (Review Zone: 2-5)"
+    if foir <= 35:
+        foir_display = f"{foir:.2f}%  [Excellent — below 35%]"
+    elif foir <= 40:
+        foir_display = f"{foir:.2f}%  [Acceptable — 35-40%]"
+    elif foir <= 45:
+        foir_display = f"{foir:.2f}%  [High — Review, 40-45%]"
+    elif foir <= 50:
+        foir_display = f"{foir:.2f}%  [Elevated — 45-50%]"
     else:
-        dpd_label = f"{dpd_90} (REJECT: >5)"
+        foir_display = f"{foir:.2f}%  [OVER-LEVERAGED > 50% — REJECT]"
+
+    story.append(_label_table([
+        ['New EMI:',          f"Rs.{new_emi:,.0f}",    'Existing EMI:',   f"Rs.{existing_emi:,.0f}"],
+        ['Total EMI:',        f"Rs.{total_emi:,.0f}",  'FOIR:',           foir_display],
+        ['Net Disposable:',   f"Rs.{net_disp:,.0f}",   'Aff. Status:',    aff_status],
+        ['Max Allowed EMI:',  f"Rs.{max_emi:,.0f}",    'EMI Headroom:',   f"Rs.{emi_headroom:,.0f}"],
+    ], [1.6 * inch, 1.9 * inch, 1.4 * inch, 2.1 * inch], label_cols=(0, 2)))
+    story.append(Spacer(1, 0.14 * inch))
+
+    # ── Risk indicators ───────────────────────────────────────────────────────
+    story.append(Paragraph("RISK INDICATORS", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
+
+    if dpd_90 == 0:
+        dpd_label = "0  — Clean (passes hard gate)"
+    elif dpd_90 == 1:
+        dpd_label = "1  — Acceptable (passes hard gate)"
+    elif dpd_90 <= 5:
+        dpd_label = f"{dpd_90}  — Review zone (2-5)"
+    else:
+        dpd_label = f"{dpd_90}  — HARD REJECT (> 5)"
 
     story.append(_label_table([
         ['Risk Score (0-100):',           f"{risk_score}/100"],
         ['PD (Probability of Default):',  f"{pd_pct:.2f}%"],
         ['Model Confidence:',             f"{confidence:.1f}%"],
         ['Bureau Score:',                 str(bureau_score)],
-        ['DPD 90+ (6M):',                dpd_label],
-        ['DPD 30+ (6M):',                str(dpd_30)],
-        ['Credit Utilization:',           f"{credit_util:.1f}%"],
-        ['Net Cash Surplus:',             f"Rs.{_safe_int(customer_data.get('net_cash_surplus_6m', 0)):,}"],
-    ], [2.8*inch, 4.2*inch], label_cols=(0,)))
-    story.append(Spacer(1, 0.4*inch))
+        ['DPD 90+ (last 6M):',            dpd_label],
+        ['DPD 30+ (last 6M):',            str(dpd_30)],
+        ['Credit Utilisation:',           f"{credit_util:.1f}%"],
+        ['Net Cash Surplus (6M proxy):',  f"Rs.{net_surplus:,}"],
+    ], [2.8 * inch, 4.2 * inch], label_cols=(0,)))
+    story.append(Spacer(1, 0.14 * inch))
 
-    # ── Footer ─────────────────────────────────────────────────────────────────
+    # ── Decision reasons ──────────────────────────────────────────────────────
+    story.append(Paragraph("DECISION REASONS", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
+
+    if reasons:
+        r_rows = [[f"{i}.", str(r)] for i, r in enumerate(reasons, 1)]
+        rt = Table(r_rows, colWidths=[0.35 * inch, 6.65 * inch])
+        rt.setStyle(TableStyle([
+            ('TEXTCOLOR',      (0, 0), (-1, -1), colors.black),
+            ('ALIGN',          (0, 0), (0, -1),  'RIGHT'),
+            ('ALIGN',          (1, 0), (1, -1),  'LEFT'),
+            ('FONTSIZE',       (0, 0), (-1, -1), 9),
+            ('TOPPADDING',     (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING',  (0, 0), (-1, -1), 4),
+            ('LEFTPADDING',    (1, 0), (1, -1),  6),
+            ('VALIGN',         (0, 0), (-1, -1), 'TOP'),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1),
+             [colors.white, colors.HexColor('#f0f7ff')]),
+        ]))
+        story.append(rt)
+    else:
+        story.append(Paragraph("No reason codes recorded.", base['Normal']))
+
+    story.append(Spacer(1, 0.3 * inch))
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    story.append(_section_rule())
     story.append(Paragraph(
-        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
-        "Credit Risk Assessment System v8.7 | FOR INTERNAL USE ONLY",
-        small_style))
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &nbsp;|&nbsp; "
+        "Credit Risk Assessment System v8.7 &nbsp;|&nbsp; FOR INTERNAL USE ONLY",
+        small_style,
+    ))
 
     doc.build(story)
     buffer.seek(0)
@@ -2322,143 +2458,174 @@ def generate_decision_pdf(decision_data, customer_data, affordability_data, reas
 # ---------------------------------------------------------------------------
 # AUDIT TRAIL PDF  (Stage 1 + optional Stage 2)
 # ---------------------------------------------------------------------------
-def generate_audit_pdf(audit_log):
-    """
-    Generate comprehensive audit trail PDF covering Stage 1 policy gates,
-    PD calculation breakdown, and — if present — Stage 2 deep-dive results.
 
-    Key field mapping (audit_log dict):
+def generate_audit_pdf(audit_log: dict) -> BytesIO:
+    """
+    Generate the comprehensive audit trail PDF.
+
+    Parameters — audit_log dict keys
+    ---------------------------------
+    Core (Stage 1):
         application_id, timestamp, model_version
-        decision           — Stage 1 decision
-        risk_score         — Stage 1 risk score  (0-100)
-        pd_percentage      — Stage 1 final PD %
-        confidence         — Stage 1 model confidence %
-        policy_checks      — dict of gate results
-        pd_calculation_factors  — dict with base_pd, multiplier, adjustments
-        reason_codes       — list of strings
-        stage2_final_decision, stage2_tier, stage2_interest_range,
-        stage2_combined_risk_score, stage2_confidence, stage2_reason,
-        stage2_tier_probabilities  — optional Stage 2 fields
+        decision            — Stage 1 decision string ('APPROVE'|'REJECT'|'REVIEW')
+        risk_score          — int, 0-100 scale
+        pd_percentage       — float %
+        confidence          — float %
+        policy_checks       — dict {gate_name: result_string}
+        pd_calculation_factors — dict with keys:
+                                   bureau_score, base_pd,
+                                   dpd_90, dpd_30, delinquency_multiplier,
+                                   foir, foir_adjustment, employment_adjustment,
+                                   inquiry_adjustment, ml_adjustment, final_pd
+        reason_codes        — list[str]
+
+    Stage 2 (optional — include only when Stage 2 ran):
+        stage2_final_decision     — str
+        stage2_tier               — 'P1' | 'P2' | 'P3' | 'P4'
+        stage2_interest_range     — str, e.g. '8.5-10%'
+        stage2_combined_risk_score — int, 0-1000 scale
+        stage2_confidence         — float %
+        stage2_reason             — str
+        stage2_tier_probabilities  — dict {tier: float}
+
+    Returns
+    -------
+    BytesIO — seeked PDF buffer ready for download
     """
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter,
-                            topMargin=0.5*inch, bottomMargin=0.5*inch,
-                            leftMargin=0.6*inch, rightMargin=0.6*inch)
-    base, title_style, heading_style, small_style = _styles()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        topMargin=0.45 * inch, bottomMargin=0.45 * inch,
+        leftMargin=0.65 * inch, rightMargin=0.65 * inch,
+    )
+    base, title_style, heading_style, sub_style, small_style = _styles()
     story = []
 
     # ── Title ─────────────────────────────────────────────────────────────────
-    story.append(Paragraph("AUDIT TRAIL REPORT", title_style))
-    story.append(Spacer(1, 0.15*inch))
+    story.append(Paragraph("CREDIT RISK — AUDIT TRAIL REPORT", title_style))
+    story.append(Spacer(1, 0.06 * inch))
 
     # ── Application header ────────────────────────────────────────────────────
-    app_id           = audit_log.get('application_id', 'N/A')
-    timestamp        = audit_log.get('timestamp', 'N/A')
-    s1_decision      = audit_log.get('decision', 'N/A')
-    s2_decision      = audit_log.get('stage2_final_decision', 'Not Run')
-    model_version    = audit_log.get('model_version', '8.7')
-    # If Stage 2 ran, show Stage 2 values in the header — they are the final binding numbers.
-    # Stage 1 values are kept as fallback if Stage 2 was not run.
-    s2_ran           = s2_decision not in ('Not Run', 'N/A', None, '')
-    s2_raw_score     = audit_log.get('stage2_combined_risk_score', None)
-    s1_raw_score     = audit_log.get('risk_score', 0)
-    # Use Stage 2 combined score when available and non-zero; else Stage 1 score
-    risk_score       = _safe_int(s2_raw_score if (s2_ran and s2_raw_score) else s1_raw_score)
-    pd_pct        = _safe_float(audit_log.get('pd_percentage', 0))
-    confidence    = _safe_float(audit_log.get('stage2_confidence', 0)
-                                if s2_ran else audit_log.get('confidence', 0))
-    conf_label    = 'S2 Confidence:' if s2_ran else 'Model Confidence:'
-    # FIX P-1: When Stage 2 has run, combined_risk_score is on a 0-1000 scale
-    # (Stage 1 normalised × 0.4 + Stage 2 tier score × 0.6). The old code always
-    # appended '/100', which was misleading for the combined score.
-    # Now: Stage 1 only → show '/100'; Stage 2 combined → show '(0-1000 scale)'.
+    app_id        = audit_log.get('application_id', 'N/A')
+    timestamp     = audit_log.get('timestamp', 'N/A')
+    s1_decision   = audit_log.get('decision', 'N/A')
+    s2_decision   = audit_log.get('stage2_final_decision', 'Not Run') or 'Not Run'
+    model_version = audit_log.get('model_version', '8.7')
+
+    s2_ran      = s2_decision not in ('Not Run', 'N/A', None, '')
+
+    s1_raw      = audit_log.get('risk_score', 0)
+    s2_raw      = audit_log.get('stage2_combined_risk_score', None)
+    risk_score  = _safe_int(s2_raw if (s2_ran and s2_raw) else s1_raw)
+    pd_pct      = _safe_float(audit_log.get('pd_percentage', 0))
+    confidence  = _safe_float(
+        audit_log.get('stage2_confidence', 0) if s2_ran
+        else audit_log.get('confidence', 0)
+    )
+    conf_label  = 'S2 Confidence:' if s2_ran else 'Model Confidence:'
+
     if s2_ran:
-        score_label       = 'Combined Risk Score:'
-        risk_score_display = f"{risk_score} (0-1000 scale)"
+        score_label   = 'Combined Risk Score:'
+        score_display = f"{risk_score}  (0-1000 scale)"
     else:
-        score_label       = 'Risk Score (0-100):'
-        risk_score_display = f"{risk_score}/100"
+        score_label   = 'Risk Score (0-100):'
+        score_display = f"{risk_score}/100"
 
     story.append(_label_table([
-        ['Application ID:',    app_id,       'Timestamp:',        timestamp],
-        ['Stage 1 Decision:',  s1_decision,  'Stage 2 Decision:', s2_decision],
-        [score_label,          risk_score_display, 'PD Score:',   f"{pd_pct:.2f}%"],
-        [conf_label,           f"{confidence:.1f}%", 'Version:',  model_version],
-    ], [1.7*inch, 2.1*inch, 1.7*inch, 1.5*inch], label_cols=(0, 2)))
-    story.append(Spacer(1, 0.25*inch))
+        ['Application ID:',    app_id,         'Timestamp:',         timestamp],
+        ['Stage 1 Decision:',  s1_decision,    'Stage 2 Decision:',  s2_decision],
+        [score_label,          score_display,  'PD Score:',          f"{pd_pct:.2f}%"],
+        [conf_label,           f"{confidence:.1f}%", 'Model Version:', model_version],
+    ], [1.8 * inch, 1.9 * inch, 1.7 * inch, 1.6 * inch], label_cols=(0, 2)))
+    story.append(Spacer(1, 0.14 * inch))
 
     # ── Policy gate checks ────────────────────────────────────────────────────
     story.append(Paragraph("POLICY GATE CHECKS", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
+
     policy_checks = audit_log.get('policy_checks', {})
     if policy_checks:
-        pc_rows = [[k.replace('_', ' ').title(), str(v)]
-                   for k, v in policy_checks.items()]
-        story.append(_label_table(pc_rows, [2.0*inch, 5.0*inch], label_cols=(0,)))
+        pc_rows = []
+        for k, v in policy_checks.items():
+            label = k.replace('_', ' ').title()
+            val_str = str(v)
+            if val_str.upper() in ('PASS', 'TRUE', 'YES', '1', 'OK'):
+                val_display = 'PASS  \u2713'
+            elif val_str.upper() in ('FAIL', 'FALSE', 'NO', '0', 'REJECT'):
+                val_display = 'FAIL  \u2717'
+            else:
+                val_display = val_str
+            pc_rows.append([label, val_display])
+        story.append(_label_table(pc_rows, [3.2 * inch, 3.8 * inch], label_cols=(0,)))
     else:
         story.append(Paragraph("No policy check data available.", base['Normal']))
-    story.append(Spacer(1, 0.25*inch))
+    story.append(Spacer(1, 0.14 * inch))
 
     # ── PD calculation breakdown ──────────────────────────────────────────────
     story.append(Paragraph("PD CALCULATION FACTORS", heading_style))
+    story.append(Spacer(1, 0.04 * inch))
+
     pd_f = audit_log.get('pd_calculation_factors', {})
 
-    bureau_score       = _safe_int(pd_f.get('bureau_score', 0))
-    base_pd            = _safe_float(pd_f.get('base_pd', 0))
-    dpd_90             = _safe_int(pd_f.get('dpd_90', 0))
-    dpd_30             = _safe_int(pd_f.get('dpd_30', 0))
-    deliq_mult         = _safe_float(pd_f.get('delinquency_multiplier', 1.0))
-    foir_val           = _safe_float(pd_f.get('foir', 0))
-    foir_adj           = _safe_float(pd_f.get('foir_adjustment', 0))
-    emp_adj            = _safe_float(pd_f.get('employment_adjustment', 0))
-    inq_adj            = _safe_float(pd_f.get('inquiry_adjustment', 0))
-    ml_adj             = _safe_float(pd_f.get('ml_adjustment', 0))
-    final_pd           = _safe_float(pd_f.get('final_pd', pd_pct))
+    bureau_score = _safe_int(pd_f.get('bureau_score', 0))
+    base_pd      = _safe_float(pd_f.get('base_pd', 0))
+    dpd_90       = _safe_int(pd_f.get('dpd_90', 0))
+    dpd_30       = _safe_int(pd_f.get('dpd_30', 0))
+    deliq_mult   = _safe_float(pd_f.get('delinquency_multiplier', 1.0))
+    foir_val     = _safe_float(pd_f.get('foir', 0))
+    foir_adj     = _safe_float(pd_f.get('foir_adjustment', 0))
+    emp_adj      = _safe_float(pd_f.get('employment_adjustment', 0))
+    inq_adj      = _safe_float(pd_f.get('inquiry_adjustment', 0))
+    ml_adj       = _safe_float(pd_f.get('ml_adjustment', 0))
+    final_pd     = _safe_float(pd_f.get('final_pd', pd_pct))
 
-    # DPD tier label
+    # DPD 90 tier label mirrors hard-gate logic
     if dpd_90 == 0:
-        dpd_tier = "0 (Clean — pass)"
+        dpd_tier = "0  — Clean (passes hard gate)"
     elif dpd_90 == 1:
-        dpd_tier = "1 (Acceptable — pass)"
+        dpd_tier = "1  — Acceptable (passes hard gate)"
     elif dpd_90 <= 5:
-        dpd_tier = f"{dpd_90} (Review zone 2-5)"
+        dpd_tier = f"{dpd_90}  — Review zone (2-5)"
     else:
-        dpd_tier = f"{dpd_90} (REJECT — exceeds 5)"
+        dpd_tier = f"{dpd_90}  — HARD REJECT (> 5)"
 
     pd_rows = [
-        ['Bureau Score:',           str(bureau_score)],
-        ['Base PD:',                f"{base_pd:.2f}%"],
-        ['DPD 90+ Count:',          dpd_tier],
-        ['DPD 30+ Count:',          str(dpd_30)],
-        ['Delinquency Multiplier:', f"{deliq_mult:.2f}x"],
-        ['FOIR:',                   f"{foir_val:.2f}%"],
-        ['FOIR Adjustment:',        f"{foir_adj:+.2f}%"],
-        ['Employment Adjustment:',  f"{emp_adj:+.2f}%"],
-        ['Inquiry Adjustment:',     f"{inq_adj:+.2f}%"],
-        ['ML Model Adjustment:',    f"{ml_adj:+.2f}%"],
-        ['FINAL PD:',               f"{final_pd:.2f}%"],
+        ['Bureau Score:',                str(bureau_score)],
+        ['Base PD (from score):',        f"{base_pd:.2f}%"],
+        ['DPD 90+ Count (6M):',          dpd_tier],
+        ['DPD 30+ Count (6M):',          str(dpd_30)],
+        ['Delinquency Multiplier:',      f"{deliq_mult:.2f}x"],
+        ['FOIR:',                        f"{foir_val:.2f}%"],
+        ['FOIR Adjustment:',             f"{foir_adj:+.2f}%"],
+        ['Employment Adjustment:',       f"{emp_adj:+.2f}%"],
+        ['Enquiry Adjustment:',          f"{inq_adj:+.2f}%"],
+        ['ML Model Adjustment:',         f"{ml_adj:+.2f}%"],
+        ['FINAL PD (capped 0.5-25%):',   f"{final_pd:.2f}%"],
     ]
 
-    pd_table = Table(pd_rows, colWidths=[2.5*inch, 4.5*inch])
-    pd_style = [
+    pd_table = Table(pd_rows, colWidths=[2.8 * inch, 4.2 * inch])
+    pd_table.setStyle(TableStyle([
         ('BACKGROUND',    (0, 0),  (0, -1),  _LIGHT),
-        ('BACKGROUND',    (0, -1), (-1, -1), colors.HexColor('#edf2f7')),
         ('TEXTCOLOR',     (0, 0),  (-1, -1), colors.black),
         ('ALIGN',         (0, 0),  (-1, -1), 'LEFT'),
         ('FONTNAME',      (0, 0),  (0, -1),  'Helvetica-Bold'),
+        ('TEXTCOLOR',     (0, 0),  (0, -1),  _BRAND),
+        ('FONTSIZE',      (0, 0),  (-1, -1), 8.5),
+        ('TOPPADDING',    (0, 0),  (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0),  (-1, -1), 5),
+        ('LEFTPADDING',   (0, 0),  (-1, -1), 6),
+        ('GRID',          (0, 0),  (-1, -1), 0.4, _GREY),
+        # Highlight the final row
+        ('BACKGROUND',    (0, -1), (-1, -1), colors.HexColor('#dbeafe')),
         ('FONTNAME',      (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE',      (0, 0),  (-1, -1), 9),
-        ('BOTTOMPADDING', (0, 0),  (-1, -1), 6),
-        ('GRID',          (0, 0),  (-1, -1), 0.5, _GREY),
-    ]
-    pd_table.setStyle(TableStyle(pd_style))
+    ]))
     story.append(pd_table)
-    story.append(Spacer(1, 0.25*inch))
+    story.append(Spacer(1, 0.14 * inch))
 
-    # ── Stage 2 results (if available) ───────────────────────────────────────
-    if audit_log.get('stage2_final_decision') and \
-       audit_log.get('stage2_final_decision') not in ('N/A', 'Not Run', None):
-
+    # ── Stage 2 results (only when Stage 2 ran) ───────────────────────────────
+    if s2_ran:
         story.append(Paragraph("STAGE 2 DEEP DIVE RESULTS", heading_style))
+        story.append(Spacer(1, 0.04 * inch))
 
         s2_tier      = audit_log.get('stage2_tier', 'N/A')
         s2_int_range = audit_log.get('stage2_interest_range', 'N/A')
@@ -2467,54 +2634,62 @@ def generate_audit_pdf(audit_log):
         s2_reason    = audit_log.get('stage2_reason', 'N/A')
 
         s2_rows = [
-            ['Stage 2 Final Decision:',  s2_decision],
-            ['Risk Tier:',               s2_tier],
-            ['Interest Rate Range:',     s2_int_range],
-            ['Combined Risk Score:',     str(s2_risk)],
+            ['Stage 2 Final Decision:',  str(s2_decision)],
+            ['Risk Tier:',               str(s2_tier)],
+            ['Interest Rate Range:',     str(s2_int_range)],
+            ['Combined Risk Score:',     f"{s2_risk}  (0-1000 scale)"],
             ['Stage 2 Confidence:',      f"{s2_conf:.1f}%"],
             ['Stage 2 Reason:',          str(s2_reason)],
         ]
-        story.append(_label_table(s2_rows, [2.5*inch, 4.5*inch], label_cols=(0,)))
+        story.append(_label_table(s2_rows, [2.5 * inch, 4.5 * inch], label_cols=(0,)))
 
-        # Tier probabilities
         tier_probs = audit_log.get('stage2_tier_probabilities')
         if tier_probs and isinstance(tier_probs, dict):
-            story.append(Spacer(1, 0.1*inch))
-            story.append(Paragraph("Tier Probabilities:", base['Normal']))
+            story.append(Spacer(1, 0.08 * inch))
+            story.append(Paragraph("Tier Probabilities:", sub_style))
             tp_rows = [[tier, f"{prob:.1f}%"] for tier, prob in tier_probs.items()]
-            story.append(_label_table(tp_rows, [2.5*inch, 4.5*inch], label_cols=(0,)))
+            story.append(_label_table(tp_rows, [2.5 * inch, 4.5 * inch], label_cols=(0,)))
 
-        story.append(Spacer(1, 0.25*inch))
+        story.append(Spacer(1, 0.14 * inch))
 
     # ── Decision reason codes ─────────────────────────────────────────────────
     story.append(Paragraph("DECISION REASONS", heading_style))
-    reasons = audit_log.get('reason_codes', [])
-    if reasons:
-        r_rows = [[f"{i}.", str(r)] for i, r in enumerate(reasons, 1)]
-        rt = Table(r_rows, colWidths=[0.4*inch, 6.6*inch])
+    story.append(Spacer(1, 0.04 * inch))
+
+    reasons_list = audit_log.get('reason_codes', [])
+    if reasons_list:
+        r_rows = [[f"{i}.", str(r)] for i, r in enumerate(reasons_list, 1)]
+        rt = Table(r_rows, colWidths=[0.35 * inch, 6.65 * inch])
         rt.setStyle(TableStyle([
-            ('TEXTCOLOR',     (0, 0), (-1, -1), colors.black),
-            ('ALIGN',         (0, 0), (0, -1),  'RIGHT'),
-            ('ALIGN',         (1, 0), (1, -1),  'LEFT'),
-            ('FONTSIZE',      (0, 0), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
+            ('TEXTCOLOR',      (0, 0), (-1, -1), colors.black),
+            ('ALIGN',          (0, 0), (0, -1),  'RIGHT'),
+            ('ALIGN',          (1, 0), (1, -1),  'LEFT'),
+            ('FONTSIZE',       (0, 0), (-1, -1), 9),
+            ('TOPPADDING',     (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING',  (0, 0), (-1, -1), 4),
+            ('LEFTPADDING',    (1, 0), (1, -1),  6),
+            ('VALIGN',         (0, 0), (-1, -1), 'TOP'),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1),
+             [colors.white, colors.HexColor('#f0f7ff')]),
         ]))
         story.append(rt)
     else:
         story.append(Paragraph("No reason codes recorded.", base['Normal']))
 
-    story.append(Spacer(1, 0.4*inch))
+    story.append(Spacer(1, 0.3 * inch))
 
     # ── Footer ────────────────────────────────────────────────────────────────
+    story.append(_section_rule())
     story.append(Paragraph(
-        f"Audit Trail Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
+        f"Audit Trail Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &nbsp;|&nbsp; "
         "Credit Risk Assessment System v8.7",
-        small_style))
+        small_style,
+    ))
     story.append(Paragraph(
         "This document is an official record of the credit assessment decision process. "
-        "FOR INTERNAL USE ONLY.",
-        small_style))
+        "FOR INTERNAL USE ONLY — NOT FOR DISTRIBUTION.",
+        small_style,
+    ))
 
     doc.build(story)
     buffer.seek(0)
