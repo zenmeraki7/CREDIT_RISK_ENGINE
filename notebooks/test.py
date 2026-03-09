@@ -13647,22 +13647,56 @@ def make_hybrid_decision_enhanced(customer_dict):
     affordability_data = calculate_affordability(monthly_income, loan_amount, interest_rate, loan_tenure, existing_emi)
     foir = affordability_data['foir_percentage']
 
-    if foir > 50:
-        ml_decision = "REJECT"
-        policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
+# Hard reject
+if foir > 50:
+    ml_decision = "REJECT"
+    policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
 
-    if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
-    if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
-    if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
+# Elevated – needs review
+elif foir > 40 and ml_decision == "APPROVE":
+    ml_decision = "REVIEW"
+    policy_checks['foir'] = f"⚠️ EMI burden elevated (FOIR: {foir:.1f}%)"
 
-    risk_score = calculate_final_risk_score(
-        bureau_score=bureau_score, ml_confidence=confidence, foir=foir,
-        dpd_90=dpd_90, dpd_30=customer_dict.get('dpd_30_count_6m', 0),
-        net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
-        bounces=customer_dict.get('inward_bounce_count_3m', 0),
-        missing_months=customer_dict.get('salary_missing_months', 0),
-        active_loans=active_loans
-    )
+# Other review flags
+if dependents_flag_review and ml_decision == "APPROVE":
+    ml_decision = "REVIEW"
+
+if active_loans_flag and ml_decision == "APPROVE":
+    ml_decision = "REVIEW"
+
+if salary_flag and ml_decision == "APPROVE":
+    ml_decision = "REVIEW"
+
+
+risk_score = calculate_final_risk_score(
+    bureau_score=bureau_score,
+    ml_confidence=confidence,
+    foir=foir,
+    dpd_90=dpd_90,
+    dpd_30=customer_dict.get('dpd_30_count_6m', 0),
+    net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
+    bounces=customer_dict.get('inward_bounce_count_3m', 0),
+    missing_months=customer_dict.get('salary_missing_months', 0),
+    active_loans=active_loans
+)
+    # foir = affordability_data['foir_percentage']
+
+    # if foir > 50:
+    #     ml_decision = "REJECT"
+    #     policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
+
+    # if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
+    # if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
+    # if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
+
+    # risk_score = calculate_final_risk_score(
+    #     bureau_score=bureau_score, ml_confidence=confidence, foir=foir,
+    #     dpd_90=dpd_90, dpd_30=customer_dict.get('dpd_30_count_6m', 0),
+    #     net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
+    #     bounces=customer_dict.get('inward_bounce_count_3m', 0),
+    #     missing_months=customer_dict.get('salary_missing_months', 0),
+    #     active_loans=active_loans
+    # )
     pd_percentage = calculate_final_pd(
         bureau_score=bureau_score, foir=foir, confidence=confidence,
         dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
