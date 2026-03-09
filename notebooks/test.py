@@ -12874,14 +12874,12 @@ def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_co
     adjusted_base_pd = base_pd * deliq_multiplier
     final_pd = adjusted_base_pd + foir_adj + employment_adj + inquiry_adj + ml_adj
     return round(max(0.5, min(final_pd, 25.0)), 2)
-
 # =============================================================================
 # CIBIL EXTRACTION & CATEGORICAL FLAGS — imported from utils/ocr_extractor.py (v3.0)
-# The inline versions below have been superseded by the standalone module which
-# adds multi-pass deskew, per-page confidence re-run at 450 DPI, structured
-# DPD table parsing, date-windowed enquiry counts, and several bug fixes.
 # =============================================================================
+
 OCR_EXTRACTOR_AVAILABLE = False
+
 try:
     from utils.ocr_extractor import extract_cibil_from_pdf, infer_categorical_flags
     OCR_EXTRACTOR_AVAILABLE = True
@@ -12890,9 +12888,11 @@ except ImportError:
         from ocr_extractor import extract_cibil_from_pdf, infer_categorical_flags
         OCR_EXTRACTOR_AVAILABLE = True
     except ImportError:
-        pass  # Will fall back to inline versions below if module not found
+        pass
+
 
 if not OCR_EXTRACTOR_AVAILABLE:
+
     # --- Fallback: inline stubs (kept for backward compatibility) ----
 
     def _infer_surplus_from_cibil(score: int, dpd_60: int, dpd_30: int, income: float) -> float:
@@ -12904,25 +12904,31 @@ if not OCR_EXTRACTOR_AVAILABLE:
             return income * 0.1
         else:
             return income * 0.3
-                
-def infer_categorical_flags(extraction_result: dict) -> dict:
-    score       = int(extraction_result.get('Credit_Score', 700) or 700)
-    dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
-    dpd_60      = int(extraction_result.get('num_times_60p_dpd', 0) or 0)
-    written_off = int(extraction_result.get('num_lss', 0) or extraction_result.get('written_off_count', 0) or 0)
-    doubtful    = int(extraction_result.get('num_dbt', 0) or 0)
-    cc_util_raw = extraction_result.get('CC_utilization', 0) or 0
-    cc_util     = float(cc_util_raw) if cc_util_raw > 0 else 0.0
-    income      = float(extraction_result.get('NETMONTHLYINCOME', 0) or
-                        extraction_result.get('avg_salary_6m', 50_000) or 50_000)
-    tenure      = int(extraction_result.get('Time_With_Curr_Empr', 24) or 24)
 
-    is_bureau_only = (
-        'NETMONTHLYINCOME' in extraction_result
-        and 'net_cash_surplus_6m' not in extraction_result
-        and 'net_surplus' not in extraction_result
-    )
 
+    def infer_categorical_flags(extraction_result: dict) -> dict:
+        score       = int(extraction_result.get('Credit_Score', 700) or 700)
+        dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
+        dpd_60      = int(extraction_result.get('num_times_60p_dpd', 0) or 0)
+        written_off = int(extraction_result.get('num_lss', 0) or extraction_result.get('written_off_count', 0) or 0)
+        doubtful    = int(extraction_result.get('num_dbt', 0) or 0)
+
+        cc_util_raw = extraction_result.get('CC_utilization', 0) or 0
+        cc_util     = float(cc_util_raw) if cc_util_raw > 0 else 0.0
+
+        income = float(
+            extraction_result.get('NETMONTHLYINCOME', 0)
+            or extraction_result.get('avg_salary_6m', 50000)
+            or 50000
+        )
+
+        tenure = int(extraction_result.get('Time_With_Curr_Empr', 24) or 24)
+
+        is_bureau_only = (
+            'NETMONTHLYINCOME' in extraction_result
+            and 'net_cash_surplus_6m' not in extraction_result
+            and 'net_surplus' not in extraction_result
+        )
     if is_bureau_only:
         dpd_90_proxy = dpd_60
         surplus = _infer_surplus_from_cibil(score, dpd_60, dpd_30, income)
