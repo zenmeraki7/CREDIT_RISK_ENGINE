@@ -13772,33 +13772,10 @@ def create_modern_bar_chart(class_probs):
 # =============================================================================
 # STAGE 2 BINARY RESOLVER
 # =============================================================================
-def resolve_stage2_to_binary(stage2_result: dict) -> dict:
-    result = stage2_result.copy()
-    tier  = result.get('stage2_tier', '')
-    raw   = result.get('final_decision', '')
-    score = result.get('combined_risk_score', 0) or 0
-    TIER_MAP = {'P1': 'APPROVE', 'P2': 'APPROVE', 'P3': 'REJECT', 'P4': 'REJECT'}
-    if raw == 'REJECT':
-        result['final_decision'] = 'REJECT'
-    elif raw == 'APPROVE':
-        result['final_decision'] = TIER_MAP.get(tier, 'APPROVE')
-    else:
-        if tier in TIER_MAP:
-            result['final_decision'] = TIER_MAP[tier]
-            result['reason'] = result.get('reason', '') + f" [REVIEW resolved to {TIER_MAP[tier]} via tier {tier}]"
-        else:
-            resolved = 'APPROVE' if score >= 600 else 'REJECT'
-            result['final_decision'] = resolved
-            result['reason'] = result.get('reason', '') + f" [REVIEW resolved to {resolved} via score {score}]"
-    if result['final_decision'] == 'APPROVE':
-        result.setdefault('interest_rate_range', {'P1': '9.5%–11%', 'P2': '11%–13%'}.get(tier, '11%–14%'))
-    else:
-        result['interest_rate_range'] = 'N/A — Rejected'
-    return result
 
-# =============================================================================
-# STAGE 2 RESULTS DISPLAY
-# =============================================================================
+# PATCH: Replace the display_stage2_results banner block in test.py
+# Lines ~14036-14100 in test.py
+
 def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data):
     st.markdown("---")
     st.markdown('<p class="main-header">🎯 Stage 2 Final Results</p>', unsafe_allow_html=True)
@@ -13808,6 +13785,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     stage2_confidence = stage2_result.get('stage2_confidence', 0)
     combined_risk     = stage2_result.get('combined_risk_score', 0)
 
+    # ── Fairness log: use Stage 2 FINAL decision, remove the earlier Stage 1 entry ──
+    # Stage 1 logged a preliminary decision for this customer. Since Stage 2
+    # is the BINDING final decision, we replace that entry so the fairness
+    # dashboard always reflects the true outcome.
     app_id = stage1_customer.get('application_id', None)
     if app_id and 'fairness_log' in st.session_state:
         st.session_state.fairness_log = [
@@ -13823,10 +13804,27 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         source='stage2'
     )
 
+    # Update session state — Stage 2 is the binding final decision
+    st.session_state['stage2_final_decision'] = final_decision
+
     if final_decision == "APPROVE":
-        st.markdown('<div class="decision-card decision-card-approved"><div class="decision-title">✓ APPROVE</div><div class="decision-subtitle">✅ Final Decision: Approved — Proceed to Disbursement</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="decision-card decision-card-approved" style="padding:2.5rem;">'
+            '<div class="decision-title" style="font-size:3.5rem;font-weight:900;letter-spacing:2px;">✔  APPROVED</div>'
+            '<div class="decision-subtitle" style="font-size:1.2rem;margin-top:0.5rem;">✅ STAGE 2 FINAL DECISION — Proceed to Disbursement</div>'
+            '</div>', unsafe_allow_html=True)
+    elif final_decision == "REJECT":
+        st.markdown(
+            '<div class="decision-card decision-card-rejected" style="padding:2.5rem;">'
+            '<div class="decision-title" style="font-size:3.5rem;font-weight:900;letter-spacing:2px;">✘  REJECTED</div>'
+            '<div class="decision-subtitle" style="font-size:1.2rem;margin-top:0.5rem;">❌ STAGE 2 FINAL DECISION — Application Declined</div>'
+            '</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="decision-card decision-card-rejected"><div class="decision-title">✗ REJECT</div><div class="decision-subtitle">❌ Final Decision: Rejected — Application Declined</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="decision-card decision-card-review" style="padding:2.5rem;">'
+            '<div class="decision-title" style="font-size:3.5rem;font-weight:900;letter-spacing:2px;">⚑  REVIEW</div>'
+            '<div class="decision-subtitle" style="font-size:1.2rem;margin-top:0.5rem;">⚠️ STAGE 2 FINAL DECISION — Requires Manual Credit Officer Review</div>'
+            '</div>', unsafe_allow_html=True)
 
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("Risk Tier", stage2_tier)
@@ -13843,7 +13841,80 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         comparison_df = pd.DataFrame([
             {'Stage': 'Stage 1 (Screening)', 'Decision': s1_dec, 'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A', 'Note': 'APPROVE/REVIEW → proceed to Stage 2'},
             {'Stage': 'Stage 2 — FINAL', 'Decision': s2_label, 'Risk Score': combined_risk, 'Tier': f"{stage2_tier} | {interest_range}", 'Note': 'Binding final decision'}
-        ])
+                
+        
+# def resolve_stage2_to_binary(stage2_result: dict) -> dict:
+#     result = stage2_result.copy()
+#     tier  = result.get('stage2_tier', '')
+#     raw   = result.get('final_decision', '')
+#     score = result.get('combined_risk_score', 0) or 0
+#     TIER_MAP = {'P1': 'APPROVE', 'P2': 'APPROVE', 'P3': 'REJECT', 'P4': 'REJECT'}
+#     if raw == 'REJECT':
+#         result['final_decision'] = 'REJECT'
+#     elif raw == 'APPROVE':
+#         result['final_decision'] = TIER_MAP.get(tier, 'APPROVE')
+#     else:
+#         if tier in TIER_MAP:
+#             result['final_decision'] = TIER_MAP[tier]
+#             result['reason'] = result.get('reason', '') + f" [REVIEW resolved to {TIER_MAP[tier]} via tier {tier}]"
+#         else:
+#             resolved = 'APPROVE' if score >= 600 else 'REJECT'
+#             result['final_decision'] = resolved
+#             result['reason'] = result.get('reason', '') + f" [REVIEW resolved to {resolved} via score {score}]"
+#     if result['final_decision'] == 'APPROVE':
+#         result.setdefault('interest_rate_range', {'P1': '9.5%–11%', 'P2': '11%–13%'}.get(tier, '11%–14%'))
+#     else:
+#         result['interest_rate_range'] = 'N/A — Rejected'
+#     return result
+
+# # =============================================================================
+# # STAGE 2 RESULTS DISPLAY
+# # =============================================================================
+# def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced_customer_data):
+#     st.markdown("---")
+#     st.markdown('<p class="main-header">🎯 Stage 2 Final Results</p>', unsafe_allow_html=True)
+#     final_decision    = stage2_result.get('final_decision', 'ERROR')
+#     interest_range    = stage2_result.get('interest_rate_range', 'N/A')
+#     stage2_tier       = stage2_result.get('stage2_tier', 'N/A')
+#     stage2_confidence = stage2_result.get('stage2_confidence', 0)
+#     combined_risk     = stage2_result.get('combined_risk_score', 0)
+
+#     app_id = stage1_customer.get('application_id', None)
+#     if app_id and 'fairness_log' in st.session_state:
+#         st.session_state.fairness_log = [
+#             r for r in st.session_state.fairness_log
+#             if r.get('application_id') != app_id
+#         ]
+#     log_decision_for_fairness(
+#         enhanced_customer_data,
+#         final_decision,
+#         combined_risk,
+#         stage2_result.get('pd_percentage', stage1_data.get('pd_percentage', 0)),
+#         application_id=app_id,
+#         source='stage2'
+#     )
+
+#     if final_decision == "APPROVE":
+#         st.markdown('<div class="decision-card decision-card-approved"><div class="decision-title">✓ APPROVE</div><div class="decision-subtitle">✅ Final Decision: Approved — Proceed to Disbursement</div></div>', unsafe_allow_html=True)
+#     else:
+#         st.markdown('<div class="decision-card decision-card-rejected"><div class="decision-title">✗ REJECT</div><div class="decision-subtitle">❌ Final Decision: Rejected — Application Declined</div></div>', unsafe_allow_html=True)
+
+#     col1, col2, col3, col4 = st.columns(4)
+#     with col1: st.metric("Risk Tier", stage2_tier)
+#     with col2: st.metric("Interest Rate", interest_range)
+#     with col3: st.metric("Combined Risk Score", combined_risk)
+#     with col4: st.metric("Stage 2 Confidence", f"{stage2_confidence:.1f}%" if stage2_confidence else "N/A")
+
+#     st.markdown("<br>", unsafe_allow_html=True)
+#     tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary", "🔬 Analysis", "📋 Data", "📥 Download"])
+
+#     with tab1:
+#         s1_dec = st.session_state.get('stage1_decision', 'N/A')
+#         s2_label = "✅ APPROVE" if final_decision == "APPROVE" else "❌ REJECT"
+#         comparison_df = pd.DataFrame([
+#             {'Stage': 'Stage 1 (Screening)', 'Decision': s1_dec, 'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A', 'Note': 'APPROVE/REVIEW → proceed to Stage 2'},
+#             {'Stage': 'Stage 2 — FINAL', 'Decision': s2_label, 'Risk Score': combined_risk, 'Tier': f"{stage2_tier} | {interest_range}", 'Note': 'Binding final decision'}
+#         ])
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
         tier_info = {
             'P1': {'name': 'Premium → APPROVED', 'color': '#10B981', 'desc': 'Excellent credit profile — lowest interest rate band'},
