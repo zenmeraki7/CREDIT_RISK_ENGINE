@@ -13841,7 +13841,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         comparison_df = pd.DataFrame([
             {'Stage': 'Stage 1 (Screening)', 'Decision': s1_dec, 'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A', 'Note': 'APPROVE/REVIEW → proceed to Stage 2'},
             {'Stage': 'Stage 2 — FINAL', 'Decision': s2_label, 'Risk Score': combined_risk, 'Tier': f"{stage2_tier} | {interest_range}", 'Note': 'Binding final decision'}
-                
+        ])
         
 # def resolve_stage2_to_binary(stage2_result: dict) -> dict:
 #     result = stage2_result.copy()
