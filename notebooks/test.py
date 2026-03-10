@@ -25242,6 +25242,8 @@
 
 
 
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -26726,6 +26728,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                     'stage2_reason':              _safe(stage2_result.get('reason')),
                     'stage2_tier_probabilities':  stage2_result.get('tier_probabilities') or {},
                     'stage2_complete_analysis':   stage2_result,
+                    # Top-level PD — used by audit header (must match pd_calculation_factors.final_pd)
+                    'pd_percentage':              _final_pd,
+                    'risk_score':                 _safe(combined_risk, 0),
+                    'confidence':                 _safe(stage2_confidence, 0),
                     # Policy gate results
                     'policy_checks': stage1_data.get('policy_checks', {}),
                     # Full PD calculation breakdown
