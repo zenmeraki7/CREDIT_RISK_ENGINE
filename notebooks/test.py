@@ -12521,6 +12521,7 @@
 
 
 
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -12571,16 +12572,11 @@ warnings.filterwarnings("ignore", category=UserWarning, module='sklearn')
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
 POSSIBLE_LOCATIONS = [
-    # FIX A-2: CURRENT_DIR is the notebooks/ folder where stage2_engine.py lives.
-    # It was already present but listed alongside PROJECT_ROOT without emphasis.
-    # Adding it first and also adding CURRENT_DIR / "utils" ensures both
-    # stage2_engine.py and utils/pdf_generator.py are importable on Streamlit Cloud
-    # regardless of the working directory at launch time.
-    CURRENT_DIR,                          # notebooks/  ← stage2_engine.py lives here
-    CURRENT_DIR / "utils",               # notebooks/utils/  (if utils is nested)
+    CURRENT_DIR,
+    CURRENT_DIR / "utils",
     PROJECT_ROOT,
     PROJECT_ROOT / "loan",
-    PROJECT_ROOT / "utils",              # credit_risk_engine/utils/  ← pdf_generator etc.
+    PROJECT_ROOT / "utils",
     PROJECT_ROOT / "notebooks",
 ]
 for loc in POSSIBLE_LOCATIONS:
@@ -12685,7 +12681,6 @@ def init_session_state():
         'page_navigation':       "🏠 Home",
         'use_two_stage':         False,
         'stage2_selected_tab':   "Manual Entry",
-        # Fairness log — persists across sessions in memory
         'fairness_log':          [],
     }
     for k, v in defaults.items():
@@ -12731,10 +12726,6 @@ except ImportError:
 
 # =============================================================================
 # PDF GENERATION – SAFE FALLBACK
-# FIX A-1: Use explicit try/except import blocks instead of a single-path import.
-# Tries utils.pdf_generator first (standard install), then bare pdf_generator
-# (notebooks/ deployment). Sets PDF_AVAILABLE=False and shows a visible warning
-# in the UI if neither path works, so users know PDF download will be disabled.
 # =============================================================================
 PDF_AVAILABLE = False
 generate_decision_pdf = None
@@ -12747,7 +12738,7 @@ except ImportError:
         from pdf_generator import generate_decision_pdf, generate_audit_pdf
         PDF_AVAILABLE = True
     except ImportError:
-        PDF_AVAILABLE = False  # UI will show warning — see A-4 note in pdf download buttons
+        PDF_AVAILABLE = False
 
 # =============================================================================
 # JSON SANITIZER
@@ -12798,16 +12789,13 @@ if not ASSETS['loaded']:
     st.info("Please ensure 'credit_risk_assets.pkl' is in the same directory as this app.")
     st.stop()
 
-MODEL      = ASSETS['model']
+MODEL        = ASSETS['model']
 TOP_FEATURES = ASSETS['features']
-LE_MAP     = ASSETS['le_map']
-TARGET_LE  = ASSETS['target_le']
+LE_MAP       = ASSETS['le_map']
+TARGET_LE    = ASSETS['target_le']
 
 # =============================================================================
 # PD CALCULATION FUNCTIONS
-# NOTE: calculate_emi, calculate_affordability, generate_reason_codes,
-#       calculate_final_risk_score are imported from their respective modules.
-#       The PD functions below are NOT in any module so are kept here.
 # =============================================================================
 def bureau_score_to_pd(bureau_score):
     if bureau_score >= 800: return 0.5 + (900 - bureau_score) / 200 * 0.5
@@ -12874,10 +12862,10 @@ def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_co
     adjusted_base_pd = base_pd * deliq_multiplier
     final_pd = adjusted_base_pd + foir_adj + employment_adj + inquiry_adj + ml_adj
     return round(max(0.5, min(final_pd, 25.0)), 2)
-# =============================================================================
-# CIBIL EXTRACTION & CATEGORICAL FLAGS — imported from utils/ocr_extractor.py (v3.0)
-# =============================================================================
 
+# =============================================================================
+# CIBIL EXTRACTION & CATEGORICAL FLAGS
+# =============================================================================
 OCR_EXTRACTOR_AVAILABLE = False
 
 try:
@@ -12890,10 +12878,7 @@ except ImportError:
     except ImportError:
         pass
 
-
 if not OCR_EXTRACTOR_AVAILABLE:
-
-    # --- Fallback: inline stubs (kept for backward compatibility) ----
 
     def _infer_surplus_from_cibil(score: int, dpd_60: int, dpd_30: int, income: float) -> float:
         if dpd_60 >= 3:
@@ -12905,8 +12890,7 @@ if not OCR_EXTRACTOR_AVAILABLE:
         else:
             return income * 0.3
 
-
-def infer_categorical_flags(extraction_result: dict) -> dict:
+    def infer_categorical_flags(extraction_result: dict) -> dict:
         score       = int(extraction_result.get('Credit_Score', 700) or 700)
         dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
         dpd_60      = int(extraction_result.get('num_times_60p_dpd', 0) or 0)
@@ -12986,7 +12970,6 @@ def infer_categorical_flags(extraction_result: dict) -> dict:
 # Active only when utils/ocr_extractor.py is not importable.
 # =============================================================================
 def _re_int(pattern, text, default, lo=None, hi=None):
-    """Safe regex → int extraction with optional range clamp."""
     m = re.search(pattern, text, re.IGNORECASE)
     if m:
         try:
@@ -12998,7 +12981,6 @@ def _re_int(pattern, text, default, lo=None, hi=None):
     return default
 
 def _re_float(pattern, text, default, lo=None, hi=None):
-    """Safe regex → float extraction with optional range clamp."""
     m = re.search(pattern, text, re.IGNORECASE)
     if m:
         try:
@@ -13009,487 +12991,413 @@ def _re_float(pattern, text, default, lo=None, hi=None):
         except Exception: pass
     return default
 
-def extract_cibil_from_pdf(uploaded_file):
-    if not OCR_AVAILABLE:
-        return {'success': False, 'error': OCR_ERROR_MSG or 'OCR libraries not installed.'}
-    try:
-        # ── 1. OCR: PDF → full text ──────────────────────────────────────────
-        pdf_bytes = uploaded_file.read()
-        images    = convert_from_bytes(pdf_bytes, dpi=300)
-        full_text = ""
-        for image in images:
-            gray        = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
-            _, binary   = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            full_text  += pytesseract.image_to_string(binary) + "\n"
-        txt = full_text   # shorthand
+if not OCR_EXTRACTOR_AVAILABLE:
+    def extract_cibil_from_pdf(uploaded_file):
+        if not OCR_AVAILABLE:
+            return {'success': False, 'error': OCR_ERROR_MSG or 'OCR libraries not installed.'}
+        try:
+            pdf_bytes = uploaded_file.read()
+            images    = convert_from_bytes(pdf_bytes, dpi=300)
+            full_text = ""
+            for image in images:
+                gray        = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
+                _, binary   = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                full_text  += pytesseract.image_to_string(binary) + "\n"
+            txt = full_text
 
-        # ── 2. CREDIT SCORE (Bureau / CIBIL score) ───────────────────────────
-        credit_score = 720
-        for pat in [
-            r'\b(8[0-9]{2}|7[0-9]{2}|6[0-9]{2}|[3-5][0-9]{2})\s*(?:EXCELLENT|VERY\s*GOOD|GOOD|FAIR|SUBPRIME|POOR|NH|NA)\b',
-            r'(?:cibil|credit|bureau)\s*score\s*[:\-\(]?\s*(\d{3})',
-            r'score[^\n\r]{0,40}?(\d{3})',
-        ]:
-            m = re.search(pat, txt, re.IGNORECASE)
+            credit_score = 720
+            for pat in [
+                r'\b(8[0-9]{2}|7[0-9]{2}|6[0-9]{2}|[3-5][0-9]{2})\s*(?:EXCELLENT|VERY\s*GOOD|GOOD|FAIR|SUBPRIME|POOR|NH|NA)\b',
+                r'(?:cibil|credit|bureau)\s*score\s*[:\-\(]?\s*(\d{3})',
+                r'score[^\n\r]{0,40}?(\d{3})',
+            ]:
+                m = re.search(pat, txt, re.IGNORECASE)
+                if m:
+                    v = int(m.group(1))
+                    if 300 <= v <= 900:
+                        credit_score = v; break
+
+            age_extracted = 35
+            for dob_pat in [
+                r'(?:date\s+of\s+birth|dob|d\.o\.b)[\s:\-]+(\d{2}[-/]\w{3,9}[-/]\d{2,4})',
+                r'(?:date\s+of\s+birth|dob)[\s:\-]+(\d{2}[-/]\d{2}[-/]\d{4})',
+                r'born[\s:]+(\d{2}[-/]\w{3,9}[-/]\d{4})',
+            ]:
+                m = re.search(dob_pat, txt, re.IGNORECASE)
+                if m:
+                    for fmt in ('%d-%b-%Y','%d/%b/%Y','%d-%b-%y','%d-%m-%Y','%d/%m/%Y'):
+                        try:
+                            dob = datetime.strptime(m.group(1), fmt)
+                            age_extracted = int((datetime.now() - dob).days / 365.25)
+                            break
+                        except Exception: continue
+                    if age_extracted != 35: break
+            if age_extracted == 35:
+                age_extracted = _re_int(r'(?:^|\s)age[\s:\-]+(\d{2})\b', txt, 35, lo=18, hi=75)
+
+            if re.search(r'\bfemale\b|\bF\b', txt, re.IGNORECASE):
+                gender = 'F'
+            elif re.search(r'\bmale\b|\bM\b', txt, re.IGNORECASE):
+                gender = 'M'
+            else:
+                gender = 'M'
+
+            if re.search(r'\bsingle\b|\bunmarried\b', txt, re.IGNORECASE):
+                marital_status = 'Single'
+            else:
+                marital_status = 'Married'
+
+            education = 'GRADUATE'
+            for pat, val in [
+                (r'post.?grad(uate)?|m\.?tech|mba|mca',    'POST-GRADUATE'),
+                (r'professional|ca\b|cs\b|icai',             'PROFESSIONAL'),
+                (r'\b12th\b|\bhsc\b|\binter(mediate)?\b',   '12TH'),
+                (r'\bssc\b|\b10th\b|\bmatric',               'SSC'),
+                (r'under.?grad(uate)?',                      'UNDER GRADUATE'),
+                (r'\bgrad(uate)?\b|\bb\.?tech\b|\bb\.?e\b|\bb\.?sc\b|\bb\.?com\b', 'GRADUATE'),
+            ]:
+                if re.search(pat, txt, re.IGNORECASE): education = val; break
+
+            monthly_income = 50000
+            for inc_pat in [
+                r'net\s+monthly\s+income[\s:\-₹Rs\.]*([0-9,]+)',
+                r'monthly\s+(?:take.?home|salary|income)[\s:\-₹Rs\.]*([0-9,]+)',
+                r'(?:salary|income)\s+per\s+month[\s:\-₹Rs\.]*([0-9,]+)',
+                r'₹\s*([0-9,]+)\s+(?:per\s+month|p\.?m\.?|monthly)',
+            ]:
+                m = re.search(inc_pat, txt, re.IGNORECASE)
+                if m:
+                    v = int(m.group(1).replace(',',''))
+                    if 5000 < v < 5_000_000:
+                        monthly_income = v; break
+
+            employment_type = 'Salaried'
+            if re.search(r'self.?employed|self employ|proprietor|freelance', txt, re.IGNORECASE):
+                employment_type = 'Self-Employed'
+            elif re.search(r'\bbusiness\b|\bfirm\b|\bpartner(ship)?\b', txt, re.IGNORECASE):
+                employment_type = 'Business'
+
+            employment_tenure_months = 36
+            m = re.search(r'(?:with\s+current\s+employer|employment\s+tenure|employed\s+(?:since|for))[^\d]{0,20}(\d+)\s*(?:year|yr)', txt, re.IGNORECASE)
             if m:
-                v = int(m.group(1))
-                if 300 <= v <= 900:
-                    credit_score = v; break
+                employment_tenure_months = int(m.group(1)) * 12
+            else:
+                m = re.search(r'(?:with\s+current\s+employer|tenure)[^\d]{0,20}(\d+)\s*(?:month|mth)', txt, re.IGNORECASE)
+                if m: employment_tenure_months = int(m.group(1))
 
-        # ── 3. PERSONAL INFO ────────────────────────────────────────────────
-        # Age via DOB
-        age_extracted = 35
-        for dob_pat in [
-            r'(?:date\s+of\s+birth|dob|d\.o\.b)[\s:\-]+(\d{2}[-/]\w{3,9}[-/]\d{2,4})',
-            r'(?:date\s+of\s+birth|dob)[\s:\-]+(\d{2}[-/]\d{2}[-/]\d{4})',
-            r'born[\s:]+(\d{2}[-/]\w{3,9}[-/]\d{4})',
-        ]:
-            m = re.search(dob_pat, txt, re.IGNORECASE)
+            existing_emi = 0
+            for emi_pat in [
+                r'(?:total\s+emi|existing\s+emi|current\s+emi|monthly\s+emi)[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)',
+                r'emi\s+(?:outflow|obligation)[^\d]{0,20}([0-9,]+)',
+                r'amt_annuity[\s:\-]+([0-9,]+)',
+            ]:
+                m = re.search(emi_pat, txt, re.IGNORECASE)
+                if m:
+                    v = int(m.group(1).replace(',',''))
+                    if 500 < v < 500_000:
+                        existing_emi = v; break
+
+            business_vintage = 0
+            m = re.search(r'(?:business\s+(?:since|established|vintage|age|started))[^\d]{0,20}(\d+)\s*(?:year|yr)', txt, re.IGNORECASE)
+            if m: business_vintage = int(m.group(1))
+
+            cc_util_pct = -99999
+            m = re.search(r'(?:credit\s+card\s+utiliz[ao]tion|cc\s+utiliz[ao]tion|utiliz[ao]tion\s+ratio)[^\d]{0,20}(\d{1,3})\s*%?', txt, re.IGNORECASE)
             if m:
-                for fmt in ('%d-%b-%Y','%d/%b/%Y','%d-%b-%y','%d-%m-%Y','%d/%m/%Y'):
-                    try:
-                        dob = datetime.strptime(m.group(1), fmt)
-                        age_extracted = int((datetime.now() - dob).days / 365.25)
-                        break
-                    except Exception: continue
-                if age_extracted != 35: break
-        # fallback: age stated directly
-        if age_extracted == 35:
-            age_extracted = _re_int(r'(?:^|\s)age[\s:\-]+(\d{2})\b', txt, 35, lo=18, hi=75)
+                cc_util_pct = int(m.group(1))
+            pl_util = _re_float(r'(?:personal\s+loan\s+utiliz[ao]tion|pl\s+utiliz[ao]tion)[^\d]{0,20}([\d\.]+)', txt, 0.25, lo=0, hi=5)
 
-        # Gender
-        if re.search(r'\bfemale\b|\bF\b', txt, re.IGNORECASE):
-            gender = 'F'
-        elif re.search(r'\bmale\b|\bM\b', txt, re.IGNORECASE):
-            gender = 'M'
-        else:
-            gender = 'M'
+            enq_section = ""
+            m = re.search(r'enquir(?:y|ies)\s+details(.*?)(?:account\s+summary|$)', txt, re.IGNORECASE | re.DOTALL)
+            if m: enq_section = m.group(1)
 
-        # Marital status
-        if re.search(r'\bsingle\b|\bunmarried\b', txt, re.IGNORECASE):
-            marital_status = 'Single'
-        else:
-            marital_status = 'Married'
+            tot_enq    = _re_int(r'total\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, 0)
+            enq_L12m   = _re_int(r'enquir(?:y|ies)\s*(?:\(?12\s*(?:m(?:on)?(?:th)?s?|M)\)?)?[\s:\-]+(\d+)', txt, 0)
+            enq_L6m    = _re_int(r'enquir(?:y|ies)\s*\(?6\s*(?:m(?:on)?(?:th)?s?|M)\)?[\s:\-]+(\d+)', txt, 0)
+            enq_L3m    = _re_int(r'enquir(?:y|ies)\s*\(?3\s*(?:m(?:on)?(?:th)?s?|M)\)?[\s:\-]+(\d+)', txt, 0)
 
-        # Education
-        education = 'GRADUATE'
-        for pat, val in [
-            (r'post.?grad(uate)?|m\.?tech|mba|mca',    'POST-GRADUATE'),
-            (r'professional|ca\b|cs\b|icai',             'PROFESSIONAL'),
-            (r'\b12th\b|\bhsc\b|\binter(mediate)?\b',   '12TH'),
-            (r'\bssc\b|\b10th\b|\bmatric',               'SSC'),
-            (r'under.?grad(uate)?',                      'UNDER GRADUATE'),
-            (r'\bgrad(uate)?\b|\bb\.?tech\b|\bb\.?e\b|\bb\.?sc\b|\bb\.?com\b', 'GRADUATE'),
-        ]:
-            if re.search(pat, txt, re.IGNORECASE): education = val; break
+            enq_dates = re.findall(r'\b\d{2}-[A-Za-z]{3}-\d{4}\b', enq_section)
+            tot_enq  = max(tot_enq, len(enq_dates))
+            enq_L12m = max(enq_L12m, len(enq_dates))
 
-        # ── 4. INCOME & EMPLOYMENT ──────────────────────────────────────────
-        monthly_income = 50000
-        for inc_pat in [
-            r'net\s+monthly\s+income[\s:\-₹Rs\.]*([0-9,]+)',
-            r'monthly\s+(?:take.?home|salary|income)[\s:\-₹Rs\.]*([0-9,]+)',
-            r'(?:salary|income)\s+per\s+month[\s:\-₹Rs\.]*([0-9,]+)',
-            r'₹\s*([0-9,]+)\s+(?:per\s+month|p\.?m\.?|monthly)',
-        ]:
-            m = re.search(inc_pat, txt, re.IGNORECASE)
-            if m:
-                v = int(m.group(1).replace(',',''))
-                if 5000 < v < 5_000_000:
-                    monthly_income = v; break
+            CC_enq      = _re_int(r'credit\s+card\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, -99999)
+            CC_enq_L6m  = _re_int(r'cc\s+enq(?:uiry|uiries)?\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0 if CC_enq >= 0 else -99999)
+            CC_enq_L12m = _re_int(r'cc\s+enq(?:uiry|uiries)?\s*\(?12m\)?[\s:\-]+(\d+)', txt, 0 if CC_enq >= 0 else -99999)
+            PL_enq      = _re_int(r'personal\s+loan\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, -99999)
+            PL_enq_L6m  = _re_int(r'pl\s+enq(?:uiry|uiries)?\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0 if PL_enq >= 0 else -99999)
+            PL_enq_L12m = _re_int(r'pl\s+enq(?:uiry|uiries)?\s*\(?12m\)?[\s:\-]+(\d+)', txt, 0 if PL_enq >= 0 else -99999)
 
-        # Employment type
-        employment_type = 'Salaried'
-        if re.search(r'self.?employed|self employ|proprietor|freelance', txt, re.IGNORECASE):
-            employment_type = 'Self-Employed'
-        elif re.search(r'\bbusiness\b|\bfirm\b|\bpartner(ship)?\b', txt, re.IGNORECASE):
-            employment_type = 'Business'
+            time_since_recent_enq = _re_int(r'(?:last|recent)\s+enquiry[\s:\-]+(\d+)\s*days?', txt, -99999)
+            if time_since_recent_enq == -99999 and enq_dates:
+                try:
+                    most_recent = max(datetime.strptime(d, '%d-%b-%Y') for d in enq_dates)
+                    time_since_recent_enq = (datetime.now() - most_recent).days
+                except Exception: pass
 
-        # Employment tenure (months)
-        employment_tenure_months = 36
-        m = re.search(r'(?:with\s+current\s+employer|employment\s+tenure|employed\s+(?:since|for))[^\d]{0,20}(\d+)\s*(?:year|yr)', txt, re.IGNORECASE)
-        if m:
-            employment_tenure_months = int(m.group(1)) * 12
-        else:
-            m = re.search(r'(?:with\s+current\s+employer|tenure)[^\d]{0,20}(\d+)\s*(?:month|mth)', txt, re.IGNORECASE)
-            if m: employment_tenure_months = int(m.group(1))
+            accounts, dpd_all = [], []
+            in_accounts = False
+            for line in txt.split('\n'):
+                lu = line.upper()
+                if 'ACCOUNT DETAILS' in lu or 'LOAN DETAILS' in lu:
+                    in_accounts = True; continue
+                if re.search(r'ENQUIRY\s+DETAILS|SUMMARY|PERSONAL\s+INFO', lu):
+                    in_accounts = False; continue
+                if not in_accounts: continue
+                stripped = line.strip()
+                if not stripped: continue
+                stat_m = re.search(r'\b(Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss)\b', stripped, re.IGNORECASE)
+                dpd_m  = re.search(r'\b(0\d0|0\d\d|\d{3})\b', stripped)
+                if re.search(r'\bINR\b|\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b', stripped, re.IGNORECASE) or stat_m:
+                    dpd_val = int(dpd_m.group(1)) if dpd_m else 0
+                    status  = (stat_m.group(1) if stat_m else 'Active').lower()
+                    accounts.append({'dpd': dpd_val, 'status': status})
+                    dpd_all.append(dpd_val)
 
-        # Existing EMI
-        existing_emi = 0
-        for emi_pat in [
-            r'(?:total\s+emi|existing\s+emi|current\s+emi|monthly\s+emi)[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)',
-            r'emi\s+(?:outflow|obligation)[^\d]{0,20}([0-9,]+)',
-            r'amt_annuity[\s:\-]+([0-9,]+)',
-        ]:
-            m = re.search(emi_pat, txt, re.IGNORECASE)
-            if m:
-                v = int(m.group(1).replace(',',''))
-                if 500 < v < 500_000:
-                    existing_emi = v; break
+            dpd_90_count = dpd_60_count = dpd_30_count = 0
+            written_off_count = settled_count = active_count = sub_std = 0
+            if accounts:
+                for acc in accounts:
+                    d, s = acc['dpd'], acc['status']
+                    if d >= 90: dpd_90_count += 1
+                    elif d >= 60: dpd_60_count += 1
+                    elif d >= 30: dpd_30_count += 1
+                    if 'written' in s:  written_off_count += 1
+                    elif 'settled' in s: settled_count += 1
+                    elif 'active'  in s: active_count += 1
+                    if d >= 30: sub_std += 1
+            else:
+                written_off_count = len(re.findall(r'\bwritten[-\s]?off\b',       txt, re.IGNORECASE))
+                settled_count     = len(re.findall(r'\bsettled\b',                txt, re.IGNORECASE))
+                dpd_90_count      = len(re.findall(r'\b090\b|90\+?\s*dpd',        txt, re.IGNORECASE))
+                dpd_60_count      = len(re.findall(r'\b060\b|60\+?\s*dpd',        txt, re.IGNORECASE))
+                dpd_30_count      = len(re.findall(r'\b030\b|30\+?\s*dpd',        txt, re.IGNORECASE))
+                active_count      = len(re.findall(r'\bactive\b',                 txt, re.IGNORECASE))
+                active_count      = min(active_count, 10)
 
-        # Business vintage
-        business_vintage = 0
-        m = re.search(r'(?:business\s+(?:since|established|vintage|age|started))[^\d]{0,20}(\d+)\s*(?:year|yr)', txt, re.IGNORECASE)
-        if m: business_vintage = int(m.group(1))
+            total_accounts = max(len(accounts), active_count + settled_count + written_off_count, 1)
+            num_std        = active_count
+            pct_active     = active_count / total_accounts
 
-        # ── 5. CREDIT UTILISATION ───────────────────────────────────────────
-        cc_util_pct = -99999   # -99999 = no CC (like CIBIL dataset convention)
-        m = re.search(r'(?:credit\s+card\s+utiliz[ao]tion|cc\s+utiliz[ao]tion|utiliz[ao]tion\s+ratio)[^\d]{0,20}(\d{1,3})\s*%?', txt, re.IGNORECASE)
-        if m:
-            cc_util_pct = int(m.group(1))
-        pl_util = _re_float(r'(?:personal\s+loan\s+utiliz[ao]tion|pl\s+utiliz[ao]tion)[^\d]{0,20}([\d\.]+)', txt, 0.25, lo=0, hi=5)
+            num_sub = sub_std
+            num_dbt = dpd_90_count
+            num_lss = written_off_count
 
-        # ── 6. ENQUIRIES ─────────────────────────────────────────────────────
-        # Parse enquiry section for product-wise breakdown
-        enq_section = ""
-        m = re.search(r'enquir(?:y|ies)\s+details(.*?)(?:account\s+summary|$)', txt, re.IGNORECASE | re.DOTALL)
-        if m: enq_section = m.group(1)
+            time_since_recent_payment = _re_int(
+                r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*days?', txt, -99999)
+            if time_since_recent_payment == -99999:
+                m = re.search(r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*(?:month|mth)', txt, re.IGNORECASE)
+                if m: time_since_recent_payment = int(m.group(1)) * 30
 
-        tot_enq    = _re_int(r'total\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, 0)
-        enq_L12m   = _re_int(r'enquir(?:y|ies)\s*(?:\(?12\s*(?:m(?:on)?(?:th)?s?|M)\)?)?[\s:\-]+(\d+)', txt, 0)
-        enq_L6m    = _re_int(r'enquir(?:y|ies)\s*\(?6\s*(?:m(?:on)?(?:th)?s?|M)\)?[\s:\-]+(\d+)', txt, 0)
-        enq_L3m    = _re_int(r'enquir(?:y|ies)\s*\(?3\s*(?:m(?:on)?(?:th)?s?|M)\)?[\s:\-]+(\d+)', txt, 0)
+            time_since_first_deliq  = -99999 if (dpd_30_count + dpd_60_count + dpd_90_count) == 0 else \
+                _re_int(r'first\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 365)
+            time_since_recent_deliq = -99999 if (dpd_30_count + dpd_60_count + dpd_90_count) == 0 else \
+                _re_int(r'(?:last|recent)\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 90)
+            recent_level_of_deliq   = max(
+                dpd_90_count * 90, dpd_60_count * 60, dpd_30_count * 30)
 
-        # Count enquiry dates in section as fallback
-        enq_dates = re.findall(r'\b\d{2}-[A-Za-z]{3}-\d{4}\b', enq_section)
-        tot_enq  = max(tot_enq, len(enq_dates))
-        enq_L12m = max(enq_L12m, len(enq_dates))
+            num_deliq_6mts    = dpd_30_count + dpd_60_count + dpd_90_count
+            num_deliq_12mts   = num_deliq_6mts
+            num_deliq_6_12mts = 0
+            max_deliq_6mts    = -99999 if num_deliq_6mts  == 0 else recent_level_of_deliq
+            max_deliq_12mts   = -99999 if num_deliq_12mts == 0 else recent_level_of_deliq
 
-        # Product-wise enquiries (CC / PL)
-        CC_enq     = _re_int(r'credit\s+card\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, -99999)
-        CC_enq_L6m = _re_int(r'cc\s+enq(?:uiry|uiries)?\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0 if CC_enq >= 0 else -99999)
-        CC_enq_L12m= _re_int(r'cc\s+enq(?:uiry|uiries)?\s*\(?12m\)?[\s:\-]+(\d+)', txt, 0 if CC_enq >= 0 else -99999)
-        PL_enq     = _re_int(r'personal\s+loan\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, -99999)
-        PL_enq_L6m = _re_int(r'pl\s+enq(?:uiry|uiries)?\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0 if PL_enq >= 0 else -99999)
-        PL_enq_L12m= _re_int(r'pl\s+enq(?:uiry|uiries)?\s*\(?12m\)?[\s:\-]+(\d+)', txt, 0 if PL_enq >= 0 else -99999)
+            num_std_6mts  = min(num_std, _re_int(r'standard\s+accounts?\s*\(?6m\)?[\s:\-]+(\d+)', txt, num_std))
+            num_std_12mts = _re_int(r'standard\s+accounts?\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_std)
+            num_sub_6mts  = _re_int(r'sub.?standard\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
+            num_sub_12mts = _re_int(r'sub.?standard\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_sub)
+            num_dbt_6mts  = _re_int(r'doubtful\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
+            num_dbt_12mts = _re_int(r'doubtful\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_dbt)
+            num_lss_6mts  = _re_int(r'loss\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
+            num_lss_12mts = _re_int(r'loss\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_lss)
+            num_times_delinquent  = dpd_30_count + dpd_60_count + dpd_90_count
+            num_times_30p_dpd     = dpd_30_count + dpd_60_count + dpd_90_count
+            num_times_60p_dpd     = dpd_60_count + dpd_90_count
+            max_delinquency_level = max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)
 
-        # Time since most recent enquiry (days)
-        time_since_recent_enq = _re_int(r'(?:last|recent)\s+enquiry[\s:\-]+(\d+)\s*days?', txt, -99999)
-        if time_since_recent_enq == -99999 and enq_dates:
-            try:
-                most_recent = max(datetime.strptime(d, '%d-%b-%Y') for d in enq_dates)
-                time_since_recent_enq = (datetime.now() - most_recent).days
-            except Exception: pass
+            pct_of_active_TLs_ever      = round(pct_active, 3)
+            pct_opened_TLs_L6m_of_L12m  = _re_float(
+                r'(?:opened|new)\s+accounts?\s*\(?6m\s*/\s*12m\)?[\s:\-]+([\d\.]+)', txt, 0.3, lo=0, hi=1)
+            pct_currentBal_all_TL       = _re_float(
+                r'current\s+balance\s+(?:ratio|pct|%)[\s:\-]+([\d\.]+)', txt, 0.3, lo=0, hi=10)
+            pct_PL_enq_L6m_of_L12m     = round(PL_enq_L6m / max(PL_enq_L12m, 1), 2) if PL_enq_L6m >= 0 else 0
+            pct_CC_enq_L6m_of_L12m     = round(CC_enq_L6m / max(CC_enq_L12m, 1), 2) if CC_enq_L6m >= 0 else 0
+            pct_PL_enq_L6m_of_ever     = round(PL_enq_L6m / max(PL_enq if PL_enq >= 0 else 1, 1), 2)
+            pct_CC_enq_L6m_of_ever     = round(CC_enq_L6m / max(CC_enq if CC_enq >= 0 else 1, 1), 2)
 
-        # ── 7. ACCOUNT / DPD PARSING ─────────────────────────────────────────
-        accounts, dpd_all = [], []
-        in_accounts = False
-        for line in txt.split('\n'):
-            lu = line.upper()
-            if 'ACCOUNT DETAILS' in lu or 'LOAN DETAILS' in lu:
-                in_accounts = True; continue
-            if re.search(r'ENQUIRY\s+DETAILS|SUMMARY|PERSONAL\s+INFO', lu):
-                in_accounts = False; continue
-            if not in_accounts: continue
-            stripped = line.strip()
-            if not stripped: continue
-            stat_m = re.search(r'\b(Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss)\b', stripped, re.IGNORECASE)
-            dpd_m  = re.search(r'\b(0\d0|0\d\d|\d{3})\b', stripped)
-            if re.search(r'\bINR\b|\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b', stripped, re.IGNORECASE) or stat_m:
-                dpd_val = int(dpd_m.group(1)) if dpd_m else 0
-                status  = (stat_m.group(1) if stat_m else 'Active').lower()
-                accounts.append({'dpd': dpd_val, 'status': status})
-                dpd_all.append(dpd_val)
+            CC_Flag = 1 if re.search(r'credit\s+card', txt, re.IGNORECASE) else 0
+            PL_Flag = 1 if re.search(r'personal\s+loan', txt, re.IGNORECASE) else 0
+            HL_Flag = 1 if re.search(r'home\s+loan|housing\s+loan', txt, re.IGNORECASE) else 0
+            GL_Flag = 1 if re.search(r'gold\s+loan', txt, re.IGNORECASE) else 0
 
-        # Aggregate DPD counts
-        dpd_90_count = dpd_60_count = dpd_30_count = 0
-        written_off_count = settled_count = active_count = sub_std = 0
-        if accounts:
-            for acc in accounts:
-                d, s = acc['dpd'], acc['status']
-                if d >= 90: dpd_90_count += 1
-                elif d >= 60: dpd_60_count += 1
-                elif d >= 30: dpd_30_count += 1
-                if 'written' in s:  written_off_count += 1
-                elif 'settled' in s: settled_count += 1
-                elif 'active'  in s: active_count += 1
-                if d >= 30: sub_std += 1
-        else:
-            # Fallback: keyword scan
-            written_off_count = len(re.findall(r'\bwritten[-\s]?off\b',       txt, re.IGNORECASE))
-            settled_count     = len(re.findall(r'\bsettled\b',                txt, re.IGNORECASE))
-            dpd_90_count      = len(re.findall(r'\b090\b|90\+?\s*dpd',        txt, re.IGNORECASE))
-            dpd_60_count      = len(re.findall(r'\b060\b|60\+?\s*dpd',        txt, re.IGNORECASE))
-            dpd_30_count      = len(re.findall(r'\b030\b|30\+?\s*dpd',        txt, re.IGNORECASE))
-            active_count      = len(re.findall(r'\bactive\b',                 txt, re.IGNORECASE))
-            active_count      = min(active_count, 10)  # cap noise
+            prod_map = {r'personal\s+loan':'PL', r'credit\s+card':'CC',
+                        r'home\s+loan|housing':'HL', r'auto\s+loan|car\s+loan':'AL',
+                        r'gold\s+loan':'GL', r'business\s+loan':'BL'}
+            last_prod = first_prod = 'others'
+            for pat, label in prod_map.items():
+                if re.search(pat, txt, re.IGNORECASE):
+                    last_prod = first_prod = label; break
 
-        # Standard (num_std) = active performing accounts
-        total_accounts = max(len(accounts), active_count + settled_count + written_off_count, 1)
-        num_std        = active_count
-        pct_active     = active_count / total_accounts
+            if credit_score >= 750 and (written_off_count > 0 or dpd_90_count > 0):
+                credit_score = min(credit_score, 550)
 
-        # Substandard / doubtful / loss (CIBIL classification)
-        num_sub = sub_std
-        num_dbt = dpd_90_count
-        num_lss = written_off_count
+            net_cash_surplus = _re_int(
+                r'(?:net\s+(?:cash\s+)?surplus|disposable\s+income)[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)', txt, 0)
+            if net_cash_surplus == 0:
+                net_cash_surplus = int(_infer_surplus_from_cibil(credit_score, dpd_60_count, dpd_30_count, float(monthly_income)))
 
-        # ── 8. DELINQUENCY TIMINGS ───────────────────────────────────────────
-        # CIBIL PDF usually shows months-ago; we convert to days
-        # time_since_recent_payment
-        time_since_recent_payment = _re_int(
-            r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*days?', txt, -99999)
-        if time_since_recent_payment == -99999:
-            # try "X months ago"
-            m = re.search(r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*(?:month|mth)', txt, re.IGNORECASE)
-            if m: time_since_recent_payment = int(m.group(1)) * 30
+            inward_bounce_count_3m  = dpd_90_count + dpd_60_count
+            salary_missing_months   = 0
+            total_credit_6m         = _re_int(r'total\s+credits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
+            total_debit_6m          = _re_int(r'total\s+debits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
 
-        time_since_first_deliq  = -99999 if (dpd_30_count + dpd_60_count + dpd_90_count) == 0 else \
-            _re_int(r'first\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 365)
-        time_since_recent_deliq = -99999 if (dpd_30_count + dpd_60_count + dpd_90_count) == 0 else \
-            _re_int(r'(?:last|recent)\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 90)
-        recent_level_of_deliq   = max(
-            dpd_90_count * 90, dpd_60_count * 60, dpd_30_count * 30)
+            s1 = {
+                'AMT_INCOME_TOTAL':           monthly_income * 12,
+                'AMT_ANNUITY':                existing_emi if existing_emi > 0 else int(monthly_income * 0.25),
+                'avg_salary_6m':              float(monthly_income),
+                'salary_txn_count_6m':        6.0,
+                'salary_amount_cv':           0.05 if employment_type == 'Salaried' else 0.25,
+                'salary_date_std':            2.0,
+                'salary_creditor_consistent': 1.0 if employment_type == 'Salaried' else 0.7,
+                'salary_missing_months':      float(salary_missing_months),
+                'dpd_15_count_6m':            0.0,
+                'dpd_30_count_6m':            float(dpd_30_count),
+                'dpd_90_count_6m':            float(dpd_90_count),
+                'max_dpd_6m':                 float(max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)),
+                'dpd_30_count_3m':            float(dpd_30_count),
+                'total_payments_6m':          0.0,
+                'total_late_15_6m':           0.0,
+                'total_late_30_6m':           float(dpd_30_count),
+                'total_late_60_6m':           float(dpd_60_count),
+                'total_late_90_6m':           float(dpd_90_count),
+                'max_days_late_6m':           float(max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)),
+                'avg_days_late_6m':           float(dpd_30_count * 10 + dpd_60_count * 20 + dpd_90_count * 40) / max(total_accounts, 1),
+                'total_late_30_3m':           float(dpd_30_count),
+                'total_late_90_3m':           float(dpd_90_count),
+                'avg_balance_cc':             0.0,
+                'total_drawings_cc':          0.0,
+                'avg_credit_limit':           0.0,
+                'max_utilization':            (cc_util_pct / 100) if cc_util_pct > 0 else 0.0,
+                'total_payments_cc':          0.0,
+                'dpd_count_cc':               0.0,
+                'avg_balance_pos':            0.0,
+                'dpd_count_pos':              0.0,
+                'total_credit_activity':      float(total_accounts),
+                'total_dpd_count':            float(dpd_30_count + dpd_60_count + dpd_90_count),
+                'avg_monthly_balance_6m':     float(net_cash_surplus),
+                'total_emi_monthly':          float(existing_emi if existing_emi > 0 else int(monthly_income * 0.25)),
+                'net_cash_surplus_6m':        float(net_cash_surplus),
+                'total_credit_6m':            float(total_credit_6m),
+                'total_debit_6m':             float(total_debit_6m),
+                'inward_bounce_count_3m':     float(inward_bounce_count_3m),
+                'recent_payment_stress':      float(dpd_30_count + dpd_60_count),
+                'active_loans_count':         float(active_count),
+                'bureau_score':               float(credit_score),
+                'hard_reject_flag':           1 if (dpd_90_count > 0 or written_off_count > 0 or credit_score < 550) else 0,
+            }
 
-        # 6-month vs 12-month split
-        num_deliq_6mts   = dpd_30_count + dpd_60_count + dpd_90_count
-        num_deliq_12mts  = num_deliq_6mts   # single source; 12m ≥ 6m
-        num_deliq_6_12mts = 0               # can't distinguish without dates
-        max_deliq_6mts   = -99999 if num_deliq_6mts  == 0 else recent_level_of_deliq
-        max_deliq_12mts  = -99999 if num_deliq_12mts == 0 else recent_level_of_deliq
+            _inferred = infer_categorical_flags({
+                'Credit_Score': credit_score, 'num_times_30p_dpd': dpd_30_count,
+                'num_times_60p_dpd': dpd_60_count, 'num_lss': num_lss,
+                'num_dbt': num_dbt, 'CC_utilization': cc_util_pct / 100 if cc_util_pct > 0 else 0,
+                'NETMONTHLYINCOME': monthly_income, 'Time_With_Curr_Empr': employment_tenure_months,
+                'dpd_90_count_6m': dpd_90_count, 'inward_bounce_count_3m': inward_bounce_count_3m,
+                'salary_missing_months': salary_missing_months,
+                'net_cash_surplus_6m': net_cash_surplus,
+            })
 
-        # num_std time splits
-        num_std_6mts  = min(num_std, _re_int(r'standard\s+accounts?\s*\(?6m\)?[\s:\-]+(\d+)', txt, num_std))
-        num_std_12mts = _re_int(r'standard\s+accounts?\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_std)
-        num_sub_6mts  = _re_int(r'sub.?standard\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
-        num_sub_12mts = _re_int(r'sub.?standard\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_sub)
-        num_dbt_6mts  = _re_int(r'doubtful\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
-        num_dbt_12mts = _re_int(r'doubtful\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_dbt)
-        num_lss_6mts  = _re_int(r'loss\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
-        num_lss_12mts = _re_int(r'loss\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_lss)
-        num_times_delinquent = dpd_30_count + dpd_60_count + dpd_90_count
-        num_times_30p_dpd    = dpd_30_count + dpd_60_count + dpd_90_count
-        num_times_60p_dpd    = dpd_60_count + dpd_90_count
-        max_delinquency_level = max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)
+            s2 = {
+                'Credit_Score':                credit_score,
+                'AGE':                         age_extracted,
+                'GENDER':                      gender,
+                'MARITALSTATUS':               marital_status,
+                'EDUCATION':                   education,
+                'NETMONTHLYINCOME':            monthly_income,
+                'Time_With_Curr_Empr':         employment_tenure_months,
+                'num_times_delinquent':        num_times_delinquent,
+                'max_delinquency_level':       max_delinquency_level,
+                'max_recent_level_of_deliq':   max(dpd_60_count*60, dpd_30_count*30),
+                'num_deliq_6mts':              num_deliq_6mts,
+                'num_deliq_12mts':             num_deliq_12mts,
+                'num_deliq_6_12mts':           num_deliq_6_12mts,
+                'max_deliq_6mts':              max_deliq_6mts,
+                'max_deliq_12mts':             max_deliq_12mts,
+                'num_times_30p_dpd':           num_times_30p_dpd,
+                'num_times_60p_dpd':           num_times_60p_dpd,
+                'recent_level_of_deliq':       recent_level_of_deliq,
+                'num_std':                     num_std,
+                'num_std_6mts':                num_std_6mts,
+                'num_std_12mts':               num_std_12mts,
+                'num_sub':                     num_sub,
+                'num_sub_6mts':                num_sub_6mts,
+                'num_sub_12mts':               num_sub_12mts,
+                'num_dbt':                     num_dbt,
+                'num_dbt_6mts':                num_dbt_6mts,
+                'num_dbt_12mts':               num_dbt_12mts,
+                'num_lss':                     num_lss,
+                'num_lss_6mts':                num_lss_6mts,
+                'num_lss_12mts':               num_lss_12mts,
+                'time_since_recent_payment':   time_since_recent_payment,
+                'time_since_first_deliquency': time_since_first_deliq,
+                'time_since_recent_deliquency':time_since_recent_deliq,
+                'tot_enq':                     tot_enq,
+                'enq_L3m':                     enq_L3m,
+                'enq_L6m':                     enq_L6m,
+                'enq_L12m':                    enq_L12m,
+                'time_since_recent_enq':       time_since_recent_enq,
+                'CC_enq':                      CC_enq,
+                'CC_enq_L6m':                  CC_enq_L6m,
+                'CC_enq_L12m':                 CC_enq_L12m,
+                'PL_enq':                      PL_enq,
+                'PL_enq_L6m':                  PL_enq_L6m,
+                'PL_enq_L12m':                 PL_enq_L12m,
+                'pct_of_active_TLs_ever':      pct_of_active_TLs_ever,
+                'pct_opened_TLs_L6m_of_L12m':  pct_opened_TLs_L6m_of_L12m,
+                'pct_currentBal_all_TL':       pct_currentBal_all_TL,
+                'pct_PL_enq_L6m_of_L12m':      pct_PL_enq_L6m_of_L12m,
+                'pct_CC_enq_L6m_of_L12m':      pct_CC_enq_L6m_of_L12m,
+                'pct_PL_enq_L6m_of_ever':      pct_PL_enq_L6m_of_ever,
+                'pct_CC_enq_L6m_of_ever':      pct_CC_enq_L6m_of_ever,
+                'CC_utilization':              cc_util_pct / 100 if cc_util_pct > 0 else -99999,
+                'PL_utilization':              pl_util,
+                'CC_Flag':                     CC_Flag,
+                'PL_Flag':                     PL_Flag,
+                'HL_Flag':                     HL_Flag,
+                'GL_Flag':                     GL_Flag,
+                'max_unsec_exposure_inPct':    cc_util_pct if cc_util_pct > 0 else 0,
+                'last_prod_enq2':              last_prod,
+                'first_prod_enq2':             first_prod,
+            }
 
-        # ── 9. TRADE-LINE RATIOS (pct_ fields) ──────────────────────────────
-        pct_of_active_TLs_ever     = round(pct_active, 3)
-        pct_opened_TLs_L6m_of_L12m = _re_float(
-            r'(?:opened|new)\s+accounts?\s*\(?6m\s*/\s*12m\)?[\s:\-]+([\d\.]+)', txt, 0.3, lo=0, hi=1)
-        pct_currentBal_all_TL      = _re_float(
-            r'current\s+balance\s+(?:ratio|pct|%)[\s:\-]+([\d\.]+)', txt, 0.3, lo=0, hi=10)
-        pct_PL_enq_L6m_of_L12m    = round(PL_enq_L6m / max(PL_enq_L12m, 1), 2) if PL_enq_L6m >= 0 else 0
-        pct_CC_enq_L6m_of_L12m    = round(CC_enq_L6m / max(CC_enq_L12m, 1), 2) if CC_enq_L6m >= 0 else 0
-        pct_PL_enq_L6m_of_ever    = round(PL_enq_L6m / max(PL_enq if PL_enq >= 0 else 1, 1), 2)
-        pct_CC_enq_L6m_of_ever    = round(CC_enq_L6m / max(CC_enq if CC_enq >= 0 else 1, 1), 2)
+            return {
+                **s1, **s2,
+                'existing_emi':              existing_emi if existing_emi > 0 else s1['total_emi_monthly'],
+                'employment_type':           employment_type,
+                'business_vintage_years':    business_vintage,
+                'credit_utilization_pct':    cc_util_pct if cc_util_pct > 0 else 0,
+                'salary_stability_flag':     _inferred['salary_stability_flag'],
+                'payment_discipline_flag':   _inferred['payment_discipline_flag'],
+                'cashflow_health':           _inferred['cashflow_health'],
+                'liquidity_flag':            _inferred['liquidity_flag'],
+                'bureau_risk_flag':          _inferred['bureau_risk_flag'],
+                'written_off_count':         written_off_count,
+                'settled_count':             settled_count,
+                'high_util_flag':            1 if cc_util_pct > 75 else 0,
+                'recent_deliq_flag':         1 if (dpd_90_count > 0 or dpd_60_count > 0) else 0,
+                'account_quality_score':     max(0, 100 - written_off_count*20 - settled_count*10 - dpd_90_count*15 - dpd_30_count*5),
+                '_surplus_proxy':            int(net_cash_surplus),
+                'raw_text':                  full_text,
+                'success':                   True,
+                'extraction_method':         'OCR+FullDatasetMapping_v2',
+            }
 
-        # ── 10. PRODUCT FLAGS ────────────────────────────────────────────────
-        CC_Flag = 1 if re.search(r'credit\s+card', txt, re.IGNORECASE) else 0
-        PL_Flag = 1 if re.search(r'personal\s+loan', txt, re.IGNORECASE) else 0
-        HL_Flag = 1 if re.search(r'home\s+loan|housing\s+loan', txt, re.IGNORECASE) else 0
-        GL_Flag = 1 if re.search(r'gold\s+loan', txt, re.IGNORECASE) else 0
-
-        prod_map = {r'personal\s+loan':'PL', r'credit\s+card':'CC',
-                    r'home\s+loan|housing':'HL', r'auto\s+loan|car\s+loan':'AL',
-                    r'gold\s+loan':'GL', r'business\s+loan':'BL'}
-        last_prod = first_prod = 'others'
-        for pat, label in prod_map.items():
-            if re.search(pat, txt, re.IGNORECASE):
-                last_prod = first_prod = label; break
-
-        # ── 11. SANITY CHECK: high score vs bad history ──────────────────────
-        if credit_score >= 750 and (written_off_count > 0 or dpd_90_count > 0):
-            credit_score = min(credit_score, 550)
-
-        # ── 12. NET CASH SURPLUS PROXY ───────────────────────────────────────
-        # Try to extract if stated, else infer
-        net_cash_surplus = _re_int(
-            r'(?:net\s+(?:cash\s+)?surplus|disposable\s+income)[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)', txt, 0)
-        if net_cash_surplus == 0:
-            net_cash_surplus = int(_infer_surplus_from_cibil(credit_score, dpd_60_count, dpd_30_count, float(monthly_income)))
-
-        # ── 13. INWARD BOUNCE & SALARY STABILITY (60k-specific fields) ───────
-        # These are bank-statement fields; CIBIL PDF won't have them directly.
-        # We infer them from available signals.
-        inward_bounce_count_3m  = dpd_90_count + dpd_60_count      # proxy: each severe DPD → bounce
-        salary_missing_months   = 0                                  # can't determine from CIBIL
-        total_credit_6m         = _re_int(r'total\s+credits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
-        total_debit_6m          = _re_int(r'total\s+debits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
-
-        # ── 14. STAGE-1 60K DATASET FIELD MAPPING ────────────────────────────
-        # All columns from train_60k_rule_accepted.csv mapped from OCR data
-        s1 = {
-            # Income / salary
-            'AMT_INCOME_TOTAL':          monthly_income * 12,
-            'AMT_ANNUITY':               existing_emi if existing_emi > 0 else int(monthly_income * 0.25),
-            'avg_salary_6m':             float(monthly_income),
-            'salary_txn_count_6m':       6.0,       # assume regular salary
-            'salary_amount_cv':          0.05 if employment_type == 'Salaried' else 0.25,
-            'salary_date_std':           2.0,
-            'salary_creditor_consistent': 1.0 if employment_type == 'Salaried' else 0.7,
-            'salary_missing_months':     float(salary_missing_months),
-            # Delinquency
-            'dpd_15_count_6m':           0.0,
-            'dpd_30_count_6m':           float(dpd_30_count),
-            'dpd_90_count_6m':           float(dpd_90_count),
-            'max_dpd_6m':                float(max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)),
-            'dpd_30_count_3m':           float(dpd_30_count),
-            'total_payments_6m':         0.0,
-            'total_late_15_6m':          0.0,
-            'total_late_30_6m':          float(dpd_30_count),
-            'total_late_60_6m':          float(dpd_60_count),
-            'total_late_90_6m':          float(dpd_90_count),
-            'max_days_late_6m':          float(max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)),
-            'avg_days_late_6m':          float(dpd_30_count * 10 + dpd_60_count * 20 + dpd_90_count * 40) / max(total_accounts, 1),
-            'total_late_30_3m':          float(dpd_30_count),
-            'total_late_90_3m':          float(dpd_90_count),
-            # Credit card
-            'avg_balance_cc':            0.0,
-            'total_drawings_cc':         0.0,
-            'avg_credit_limit':          0.0,
-            'max_utilization':           (cc_util_pct / 100) if cc_util_pct > 0 else 0.0,
-            'total_payments_cc':         0.0,
-            'dpd_count_cc':              0.0,
-            # POS / installment
-            'avg_balance_pos':           0.0,
-            'dpd_count_pos':             0.0,
-            # Aggregate
-            'total_credit_activity':     float(total_accounts),
-            'total_dpd_count':           float(dpd_30_count + dpd_60_count + dpd_90_count),
-            'avg_monthly_balance_6m':    float(net_cash_surplus),
-            'total_emi_monthly':         float(existing_emi if existing_emi > 0 else int(monthly_income * 0.25)),
-            'net_cash_surplus_6m':       float(net_cash_surplus),
-            'total_credit_6m':           float(total_credit_6m),
-            'total_debit_6m':            float(total_debit_6m),
-            # Cashflow
-            'inward_bounce_count_3m':    float(inward_bounce_count_3m),
-            'recent_payment_stress':     float(dpd_30_count + dpd_60_count),
-            # Active loans
-            'active_loans_count':        float(active_count),
-            # Bureau
-            'bureau_score':              float(credit_score),
-            'hard_reject_flag':          1 if (dpd_90_count > 0 or written_off_count > 0 or credit_score < 550) else 0,
-        }
-
-        # ── 15. INFERRED CATEGORICAL FLAGS (60k) ─────────────────────────────
-        _inferred = infer_categorical_flags({
-            'Credit_Score': credit_score, 'num_times_30p_dpd': dpd_30_count,
-            'num_times_60p_dpd': dpd_60_count, 'num_lss': num_lss,
-            'num_dbt': num_dbt, 'CC_utilization': cc_util_pct / 100 if cc_util_pct > 0 else 0,
-            'NETMONTHLYINCOME': monthly_income, 'Time_With_Curr_Empr': employment_tenure_months,
-            'dpd_90_count_6m': dpd_90_count, 'inward_bounce_count_3m': inward_bounce_count_3m,
-            'salary_missing_months': salary_missing_months,
-            'net_cash_surplus_6m': net_cash_surplus,
-        })
-
-        # ── 16. STAGE-2 EXTERNAL CIBIL DATASET FIELD MAPPING ─────────────────
-        # All 62 columns from External_Cibil_Dataset.xlsx
-        s2 = {
-            'Credit_Score':               credit_score,
-            'AGE':                        age_extracted,
-            'GENDER':                     gender,
-            'MARITALSTATUS':              marital_status,
-            'EDUCATION':                  education,
-            'NETMONTHLYINCOME':           monthly_income,
-            'Time_With_Curr_Empr':        employment_tenure_months,
-            # Delinquency counts
-            'num_times_delinquent':       num_times_delinquent,
-            'max_delinquency_level':      max_delinquency_level,
-            'max_recent_level_of_deliq':  max(dpd_60_count*60, dpd_30_count*30),
-            'num_deliq_6mts':             num_deliq_6mts,
-            'num_deliq_12mts':            num_deliq_12mts,
-            'num_deliq_6_12mts':          num_deliq_6_12mts,
-            'max_deliq_6mts':             max_deliq_6mts,
-            'max_deliq_12mts':            max_deliq_12mts,
-            'num_times_30p_dpd':          num_times_30p_dpd,
-            'num_times_60p_dpd':          num_times_60p_dpd,
-            'recent_level_of_deliq':      recent_level_of_deliq,
-            # Standard / substandard / doubtful / loss
-            'num_std':                    num_std,
-            'num_std_6mts':               num_std_6mts,
-            'num_std_12mts':              num_std_12mts,
-            'num_sub':                    num_sub,
-            'num_sub_6mts':               num_sub_6mts,
-            'num_sub_12mts':              num_sub_12mts,
-            'num_dbt':                    num_dbt,
-            'num_dbt_6mts':               num_dbt_6mts,
-            'num_dbt_12mts':              num_dbt_12mts,
-            'num_lss':                    num_lss,
-            'num_lss_6mts':               num_lss_6mts,
-            'num_lss_12mts':              num_lss_12mts,
-            # Timings
-            'time_since_recent_payment':  time_since_recent_payment,
-            'time_since_first_deliquency': time_since_first_deliq,
-            'time_since_recent_deliquency': time_since_recent_deliq,
-            # Enquiries
-            'tot_enq':                    tot_enq,
-            'enq_L3m':                    enq_L3m,
-            'enq_L6m':                    enq_L6m,
-            'enq_L12m':                   enq_L12m,
-            'time_since_recent_enq':      time_since_recent_enq,
-            'CC_enq':                     CC_enq,
-            'CC_enq_L6m':                 CC_enq_L6m,
-            'CC_enq_L12m':                CC_enq_L12m,
-            'PL_enq':                     PL_enq,
-            'PL_enq_L6m':                 PL_enq_L6m,
-            'PL_enq_L12m':                PL_enq_L12m,
-            # Ratios / pct fields
-            'pct_of_active_TLs_ever':     pct_of_active_TLs_ever,
-            'pct_opened_TLs_L6m_of_L12m': pct_opened_TLs_L6m_of_L12m,
-            'pct_currentBal_all_TL':      pct_currentBal_all_TL,
-            'pct_PL_enq_L6m_of_L12m':     pct_PL_enq_L6m_of_L12m,
-            'pct_CC_enq_L6m_of_L12m':     pct_CC_enq_L6m_of_L12m,
-            'pct_PL_enq_L6m_of_ever':     pct_PL_enq_L6m_of_ever,
-            'pct_CC_enq_L6m_of_ever':     pct_CC_enq_L6m_of_ever,
-            # Utilisation
-            'CC_utilization':             cc_util_pct / 100 if cc_util_pct > 0 else -99999,
-            'PL_utilization':             pl_util,
-            'CC_Flag':                    CC_Flag,
-            'PL_Flag':                    PL_Flag,
-            'HL_Flag':                    HL_Flag,
-            'GL_Flag':                    GL_Flag,
-            'max_unsec_exposure_inPct':   cc_util_pct if cc_util_pct > 0 else 0,
-            'last_prod_enq2':             last_prod,
-            'first_prod_enq2':            first_prod,
-        }
-
-        # ── 17. MERGE AND RETURN ─────────────────────────────────────────────
-        return {
-            **s1, **s2,
-            # Stage-1 form-specific fields
-            'existing_emi':              existing_emi if existing_emi > 0 else s1['total_emi_monthly'],
-            'employment_type':           employment_type,
-            'business_vintage_years':    business_vintage,
-            'credit_utilization_pct':    cc_util_pct if cc_util_pct > 0 else 0,
-            # Inferred categoricals for Stage 1 form dropdowns
-            'salary_stability_flag':     _inferred['salary_stability_flag'],
-            'payment_discipline_flag':   _inferred['payment_discipline_flag'],
-            'cashflow_health':           _inferred['cashflow_health'],
-            'liquidity_flag':            _inferred['liquidity_flag'],
-            'bureau_risk_flag':          _inferred['bureau_risk_flag'],
-            # Computed extra signals
-            'written_off_count':         written_off_count,
-            'settled_count':             settled_count,
-            'high_util_flag':            1 if cc_util_pct > 75 else 0,
-            'recent_deliq_flag':         1 if (dpd_90_count > 0 or dpd_60_count > 0) else 0,
-            'account_quality_score':     max(0, 100 - written_off_count*20 - settled_count*10 - dpd_90_count*15 - dpd_30_count*5),
-            '_surplus_proxy':            int(net_cash_surplus),
-            # Passthrough for UI display / audit
-            'raw_text':                  full_text,
-            'success':                   True,
-            'extraction_method':         'OCR+FullDatasetMapping_v2',
-        }
-
-    except Exception as e:
-        return {'error': str(e), 'message': f'Error extracting CIBIL data: {str(e)}', 'success': False}
+        except Exception as e:
+            return {'error': str(e), 'message': f'Error extracting CIBIL data: {str(e)}', 'success': False}
 
 # =============================================================================
 # FAIRNESS LOG HELPER
 # =============================================================================
 def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: int, pd_pct: float,
                                application_id: str = None, source: str = 'stage1'):
-    """
-    Append a minimal record to the in-session fairness log.
-    source = 'stage1' | 'stage2' | 'batch'
-    When Stage 2 completes, it REPLACES the Stage 1 record for the same application_id,
-    so the fairness dashboard always shows the FINAL binding decision.
-
-    NOTE A-3 — risk_score scale:
-      source='stage1' or 'batch' → risk_score is on 0-100 (Stage 1 engine output).
-      source='stage2'            → risk_score is the combined_risk_score on 0-1000
-                                   (Stage 1 normalised + Stage 2 tier, see stage2_engine.py).
-    The fairness dashboard currently uses risk_score only for the 'Avg Risk Score' summary
-    column. If cross-source comparisons are needed, normalise to a common scale first.
-    """
     record = {
         'ts':              datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'application_id':  application_id or customer_data.get('application_id', ''),
@@ -13647,56 +13555,35 @@ def make_hybrid_decision_enhanced(customer_dict):
     affordability_data = calculate_affordability(monthly_income, loan_amount, interest_rate, loan_tenure, existing_emi)
     foir = affordability_data['foir_percentage']
 
-# Hard reject
-if foir > 50:
-    ml_decision = "REJECT"
-    policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
+    # Hard reject on FOIR
+    if foir > 50:
+        ml_decision = "REJECT"
+        policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
+    # Elevated – needs review
+    elif foir > 40 and ml_decision == "APPROVE":
+        ml_decision = "REVIEW"
+        policy_checks['foir'] = f"⚠️ EMI burden elevated (FOIR: {foir:.1f}%)"
 
-# Elevated – needs review
-elif foir > 40 and ml_decision == "APPROVE":
-    ml_decision = "REVIEW"
-    policy_checks['foir'] = f"⚠️ EMI burden elevated (FOIR: {foir:.1f}%)"
+    # Other review flags
+    if dependents_flag_review and ml_decision == "APPROVE":
+        ml_decision = "REVIEW"
+    if active_loans_flag and ml_decision == "APPROVE":
+        ml_decision = "REVIEW"
+    if salary_flag and ml_decision == "APPROVE":
+        ml_decision = "REVIEW"
 
-# Other review flags
-if dependents_flag_review and ml_decision == "APPROVE":
-    ml_decision = "REVIEW"
+    risk_score = calculate_final_risk_score(
+        bureau_score=bureau_score,
+        ml_confidence=confidence,
+        foir=foir,
+        dpd_90=dpd_90,
+        dpd_30=customer_dict.get('dpd_30_count_6m', 0),
+        net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
+        bounces=customer_dict.get('inward_bounce_count_3m', 0),
+        missing_months=customer_dict.get('salary_missing_months', 0),
+        active_loans=active_loans
+    )
 
-if active_loans_flag and ml_decision == "APPROVE":
-    ml_decision = "REVIEW"
-
-if salary_flag and ml_decision == "APPROVE":
-    ml_decision = "REVIEW"
-
-
-risk_score = calculate_final_risk_score(
-    bureau_score=bureau_score,
-    ml_confidence=confidence,
-    foir=foir,
-    dpd_90=dpd_90,
-    dpd_30=customer_dict.get('dpd_30_count_6m', 0),
-    net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
-    bounces=customer_dict.get('inward_bounce_count_3m', 0),
-    missing_months=customer_dict.get('salary_missing_months', 0),
-    active_loans=active_loans
-)
-    # foir = affordability_data['foir_percentage']
-
-    # if foir > 50:
-    #     ml_decision = "REJECT"
-    #     policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
-
-    # if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
-    # if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
-    # if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
-
-    # risk_score = calculate_final_risk_score(
-    #     bureau_score=bureau_score, ml_confidence=confidence, foir=foir,
-    #     dpd_90=dpd_90, dpd_30=customer_dict.get('dpd_30_count_6m', 0),
-    #     net_surplus=customer_dict.get('net_cash_surplus_6m', 0),
-    #     bounces=customer_dict.get('inward_bounce_count_3m', 0),
-    #     missing_months=customer_dict.get('salary_missing_months', 0),
-    #     active_loans=active_loans
-    # )
     pd_percentage = calculate_final_pd(
         bureau_score=bureau_score, foir=foir, confidence=confidence,
         dpd_90_count=dpd_90, dpd_30_count=customer_dict.get('dpd_30_count_6m', 0),
@@ -13704,6 +13591,7 @@ risk_score = calculate_final_risk_score(
         business_vintage=business_vintage, recent_inquiries=recent_inquiries,
         ml_decision=ml_decision
     )
+
     return {
         'decision': ml_decision, 'ml_raw_decision': ml_decision,
         'reason': "Decision based on comprehensive assessment",
@@ -13797,7 +13685,6 @@ def process_batch_predictions(df):
                 'error_message': str(e)
             }
         else:
-            # Log to fairness monitor (success path only)
             log_decision_for_fairness(
                 customer_dict,
                 result['decision'],
@@ -13921,10 +13808,6 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     stage2_confidence = stage2_result.get('stage2_confidence', 0)
     combined_risk     = stage2_result.get('combined_risk_score', 0)
 
-    # ── Fairness log: use Stage 2 FINAL decision, remove the earlier Stage 1 entry ──
-    # Stage 1 logged a preliminary decision for this customer. Since Stage 2
-    # is the BINDING final decision, we replace that entry so the fairness
-    # dashboard always reflects the true outcome.
     app_id = stage1_customer.get('application_id', None)
     if app_id and 'fairness_log' in st.session_state:
         st.session_state.fairness_log = [
@@ -13999,8 +13882,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         if PDF_AVAILABLE and generate_audit_pdf is not None:
             try:
                 _safe = lambda v, d='N/A': v if v is not None else d
-                # Build full pd_calculation_factors from enhanced customer data
-                _bs  = enhanced_customer_data.get('bureau_score', stage1_customer.get('bureau_score', 0))
+                _bs   = enhanced_customer_data.get('bureau_score', stage1_customer.get('bureau_score', 0))
                 _foir = stage1_data.get('affordability_data', {}).get('foir_percentage', 0)
                 _conf = stage1_data.get('confidence', 0)
                 _dpd90 = enhanced_customer_data.get('dpd_90_count_6m', stage1_customer.get('dpd_90_count_6m', 0))
@@ -14014,15 +13896,15 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                 _deliq_mul = delinquency_to_pd_multiplier(_dpd90, _dpd30)
                 _emp_adj   = employment_stability_to_pd_adjustment(_emp_type, _emp_ten, _biz_vin)
                 _inq_adj   = inquiry_pattern_to_pd_adjustment(_inq)
-                _ml_adj    = ml_confidence_to_pd_adjustment(_conf, stage1_data.get('decision','REVIEW'))
+                _ml_adj    = ml_confidence_to_pd_adjustment(_conf, stage1_data.get('decision', 'REVIEW'))
                 _final_pd  = stage1_data.get('pd_percentage', round(max(0.5, min(
                     _base_pd * _deliq_mul + _foir_adj + _emp_adj + _inq_adj + _ml_adj, 25.0)), 2))
 
                 report_data = {
-                    'application_id':  _safe(stage1_customer.get('application_id')),
-                    'timestamp':       datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'model_version':   '8.7',
-                    'decision':        _safe(stage1_data.get('decision')),
+                    'application_id':             _safe(stage1_customer.get('application_id')),
+                    'timestamp':                  datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'model_version':              '8.7',
+                    'decision':                   _safe(stage1_data.get('decision')),
                     'stage2_final_decision':      _safe(final_decision),
                     'stage2_tier':                _safe(stage2_tier),
                     'stage2_interest_range':      _safe(interest_range),
@@ -14031,9 +13913,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                     'stage2_reason':              _safe(stage2_result.get('reason')),
                     'stage2_tier_probabilities':  stage2_result.get('tier_probabilities') or {},
                     'stage2_complete_analysis':   stage2_result,
-                    # Policy gate results
-                    'policy_checks': stage1_data.get('policy_checks', {}),
-                    # Full PD calculation breakdown
+                    'policy_checks':              stage1_data.get('policy_checks', {}),
                     'pd_calculation_factors': {
                         'bureau_score':           _bs,
                         'base_pd':                round(_base_pd, 2),
@@ -14047,9 +13927,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                         'ml_adjustment':          round(_ml_adj, 2),
                         'final_pd':               _final_pd,
                     },
-                    # Reason codes from Stage 1
-                    'reason_codes': stage1_customer.get('reason_codes', []),
-                    # Raw data refs
+                    'reason_codes':           stage1_customer.get('reason_codes', []),
                     'customer_data':          stage1_customer,
                     'enhanced_customer_data': enhanced_customer_data,
                 }
@@ -14060,13 +13938,13 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             except Exception as e:
                 st.error(f"PDF generation failed: {str(e)}")
         else:
-            st.warning("⚠️ PDF generation is not available. Ensure utils/pdf_generator.py is present and `reportlab` is installed (add to requirements.txt).")
+            st.warning("⚠️ PDF generation is not available. Ensure utils/pdf_generator.py is present and `reportlab` is installed.")
 
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("🔄 New Assessment", key="new_assessment_stage2", use_container_width=True):
-            for k in ['stage1_complete','stage1_decision','stage1_data','current_customer_data']:
+            for k in ['stage1_complete', 'stage1_decision', 'stage1_data', 'current_customer_data']:
                 st.session_state[k] = (False if k == 'stage1_complete' else None)
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
@@ -14119,20 +13997,18 @@ def render_fairness_dashboard():
     df['approved'] = (df['decision'] == 'APPROVE').astype(int)
     n = len(df)
 
-    # Source breakdown
     if 'source' in df.columns:
         n_s2    = int((df['source'] == 'stage2').sum())
         n_s1    = int((df['source'] == 'stage1').sum())
         n_batch = int((df['source'] == 'batch').sum())
-        src_note = f"📌 {n_s2} Stage 2 (final) · {n_s1} Stage 1 (screening) · {n_batch} Batch"
-        st.caption(src_note)
+        st.caption(f"📌 {n_s2} Stage 2 (final) · {n_s1} Stage 1 (screening) · {n_batch} Batch")
 
     st.markdown("---")
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.metric("Total Decisions", n)
     with c2: st.metric("Approvals", int(df['approved'].sum()), f"{df['approved'].mean()*100:.1f}%")
-    with c3: st.metric("Reviews", int((df['decision']=='REVIEW').sum()))
-    with c4: st.metric("Rejections", int((df['decision']=='REJECT').sum()))
+    with c3: st.metric("Reviews", int((df['decision'] == 'REVIEW').sum()))
+    with c4: st.metric("Rejections", int((df['decision'] == 'REJECT').sum()))
 
     st.markdown("---")
     tab1, tab2, tab3, tab4 = st.tabs(["👥 Gender", "🏙️ City Tier", "📅 Age Band", "💼 Employment"])
@@ -14147,8 +14023,8 @@ def render_fairness_dashboard():
             Avg_PD=('pd_pct', 'mean'),
         ).reset_index()
         grp['Approval Rate %'] = (grp['Approved'] / grp['Total'] * 100).round(1)
-        grp['Avg Risk Score'] = grp['Avg_Risk'].round(1)
-        grp['Avg PD %'] = grp['Avg_PD'].round(2)
+        grp['Avg Risk Score']  = grp['Avg_Risk'].round(1)
+        grp['Avg PD %']        = grp['Avg_PD'].round(2)
 
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -14165,7 +14041,6 @@ def render_fairness_dashboard():
         with col2:
             st.markdown("**Summary Table**")
             display_df = grp[[group_col, 'Total', 'Approval Rate %', 'Avg Risk Score', 'Avg PD %']].copy()
-            # Flag groups with approval rate deviation > 15pp from overall
             overall_rate = df['approved'].mean() * 100
             def _flag(rate):
                 diff = rate - overall_rate
@@ -14173,25 +14048,23 @@ def render_fairness_dashboard():
                 return f"✅ {rate:.1f}%"
             display_df['Approval Rate %'] = display_df['Approval Rate %'].apply(_flag)
             st.dataframe(display_df, use_container_width=True, hide_index=True)
-            overall_str = f"{overall_rate:.1f}%"
-            st.caption(f"Overall approval rate: **{overall_str}**. 🔴 = >15pp below average (potential bias). 🟢 = >15pp above average.")
+            st.caption(f"Overall approval rate: **{overall_rate:.1f}%**. 🔴 = >15pp below average. 🟢 = >15pp above average.")
 
     with tab1:
         if df['gender'].nunique() > 1:
             _approval_bar('gender', 'Approval Rate by Gender')
-            # Decision mix donut per gender
             fig2 = px.pie(df, names='decision', color='decision', color_discrete_map=COLOR_MAP,
                           title='Decision Mix (all)', hole=0.5)
             fig2.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10))
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.info("Need 2+ gender values in decisions to show chart. Ensure Gender field is filled on the form.")
+            st.info("Need 2+ gender values in decisions to show chart.")
 
     with tab2:
         if df['city_tier'].nunique() > 1:
             _approval_bar('city_tier', 'Approval Rate by City Tier')
         else:
-            st.info("Need 2+ city tier values. Ensure City Tier field is filled on the form.")
+            st.info("Need 2+ city tier values.")
 
     with tab3:
         if df['age_band'].nunique() > 1:
@@ -14214,8 +14087,7 @@ def render_fairness_dashboard():
                            file_name=f"fairness_log_{datetime.now().strftime('%Y%m%d')}.csv",
                            mime="text/csv", use_container_width=True)
     with col2:
-        st.caption("⚠️ **Note:** This log is session-based and resets when the app restarts. "
-                   "For persistent fairness monitoring, connect to a database or export regularly.")
+        st.caption("⚠️ **Note:** This log is session-based and resets when the app restarts.")
 
 
 # =============================================================================
@@ -14240,9 +14112,9 @@ with st.sidebar:
 
     st.markdown("---")
     stage2_indicator = '✅ Active' if STAGE2_AVAILABLE and is_stage2_available() else '❌ Inactive'
-    ocr_indicator = '✅ Ready' if OCR_AVAILABLE else '❌ Not Installed'
-    pdf_indicator = '✅ Ready' if PDF_AVAILABLE else '❌ Not Installed'
-    fairness_count = len(st.session_state.fairness_log)
+    ocr_indicator    = '✅ Ready'  if OCR_AVAILABLE  else '❌ Not Installed'
+    pdf_indicator    = '✅ Ready'  if PDF_AVAILABLE  else '❌ Not Installed'
+    fairness_count   = len(st.session_state.fairness_log)
 
     st.markdown(f"""
     <div class="info-card">
@@ -14267,7 +14139,7 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("### 🚀 Quick Actions")
         if st.button("🔄 New Assessment", key="new_assessment_sidebar", use_container_width=True):
-            for k in ['stage1_complete','stage1_decision','stage1_data','current_customer_data','extracted_cibil_data']:
+            for k in ['stage1_complete', 'stage1_decision', 'stage1_data', 'current_customer_data', 'extracted_cibil_data']:
                 st.session_state[k] = False if k == 'stage1_complete' else None
             st.rerun()
 
@@ -14324,10 +14196,10 @@ elif page == "👤 Assessment":
                 st.markdown("**📊 Inferred Categorical Flags:**")
                 fc1, fc2, fc3, fc4, fc5 = st.columns(5)
                 fc1.metric("Payment Discipline", _inf.get('payment_discipline_flag', '—'))
-                fc2.metric("Cashflow Health", _inf.get('cashflow_health', '—'))
-                fc3.metric("Liquidity", _inf.get('liquidity_flag', '—'))
-                fc4.metric("Bureau Risk", _inf.get('bureau_risk_flag', '—'))
-                fc5.metric("Salary Stability", _inf.get('salary_stability_flag', '—'))
+                fc2.metric("Cashflow Health",    _inf.get('cashflow_health', '—'))
+                fc3.metric("Liquidity",          _inf.get('liquidity_flag', '—'))
+                fc4.metric("Bureau Risk",        _inf.get('bureau_risk_flag', '—'))
+                fc5.metric("Salary Stability",   _inf.get('salary_stability_flag', '—'))
             if st.button("🔄 Upload a different PDF", key="reset_pdf"):
                 st.session_state.pdf_just_extracted = False
                 st.session_state.pop('_last_extraction', None)
@@ -14342,7 +14214,6 @@ elif page == "👤 Assessment":
                     with st.spinner("🔄 Running OCR on CIBIL PDF — this takes 10-30 seconds..."):
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                     if extraction_result.get('success', False):
-                        # ── Stage 1: 60k dataset field autofill ──────────────
                         st.session_state.pdf_age               = int(extraction_result.get('AGE', 35))
                         st.session_state.pdf_bureau_score      = int(extraction_result.get('Credit_Score', 720))
                         st.session_state.pdf_dpd_90            = int(extraction_result.get('dpd_90_count_6m', 0))
@@ -14359,33 +14230,26 @@ elif page == "👤 Assessment":
                         _surplus = int(extraction_result.get('net_cash_surplus_6m') or extraction_result.get('_surplus_proxy') or 0)
                         st.session_state.pdf_net_surplus       = _surplus
                         st.session_state.pdf_employment_tenure = int(extraction_result.get('Time_With_Curr_Empr', 24))
-                        # Employment type (new — was never filled before)
                         _emp = extraction_result.get('employment_type', 'Salaried')
                         if _emp in ['Salaried', 'Self-Employed', 'Business']:
                             st.session_state.pdf_employment_type = _emp
-                        # Business vintage (new)
                         st.session_state.pdf_business_vintage  = int(extraction_result.get('business_vintage_years', 0))
-                        # Gender (new — was extracted but never applied to form)
                         _g = extraction_result.get('GENDER', 'M')
-                        st.session_state.pdf_gender = 'Male' if _g == 'M' else 'Female'
-                        # Dependents: CIBIL PDFs rarely state this; leave at form default
-                        # Inward bounce & missing salary (inferred from delinquency)
+                        st.session_state.pdf_gender            = 'Male' if _g == 'M' else 'Female'
                         st.session_state.pdf_inward_bounce     = int(extraction_result.get('inward_bounce_count_3m', 0))
                         st.session_state.pdf_salary_missing    = int(extraction_result.get('salary_missing_months', 0))
-                        # Categorical flags (now come directly from extraction, no second infer needed)
-                        st.session_state.pdf_salary_stability   = extraction_result.get('salary_stability_flag', 'MODERATE')
+                        st.session_state.pdf_salary_stability  = extraction_result.get('salary_stability_flag', 'MODERATE')
                         st.session_state.pdf_payment_discipline = extraction_result.get('payment_discipline_flag', 'GOOD')
-                        st.session_state.pdf_cashflow_health    = extraction_result.get('cashflow_health', 'MODERATE')
-                        st.session_state.pdf_liquidity_flag     = extraction_result.get('liquidity_flag', 'MODERATE')
-                        st.session_state.pdf_bureau_risk_flag   = extraction_result.get('bureau_risk_flag', 'MODERATE')
-                        st.session_state.pdf_just_extracted     = True
-                        st.session_state._last_extraction       = extraction_result
+                        st.session_state.pdf_cashflow_health   = extraction_result.get('cashflow_health', 'MODERATE')
+                        st.session_state.pdf_liquidity_flag    = extraction_result.get('liquidity_flag', 'MODERATE')
+                        st.session_state.pdf_bureau_risk_flag  = extraction_result.get('bureau_risk_flag', 'MODERATE')
+                        st.session_state.pdf_just_extracted    = True
+                        st.session_state._last_extraction      = extraction_result
                         st.rerun()
                     else:
                         st.error(f"❌ Extraction failed: {extraction_result.get('error', 'Unknown error')}")
 
     with st.form("assessment_form"):
-        # ── Identity & Eligibility ─────────────────────────────────────────
         st.markdown('<p class="section-header">👤 Identity & Eligibility</p>', unsafe_allow_html=True)
         col_name1, col_name2 = st.columns([2, 2])
         with col_name1:
@@ -14394,7 +14258,7 @@ elif page == "👤 Assessment":
         with col1:
             age = st.number_input("Age", 24, 70, value=int(st.session_state.get('pdf_age', 35)))
             employment_type = st.selectbox("Employment Type", ['Salaried', 'Self-Employed', 'Business'],
-                index=['Salaried','Self-Employed','Business'].index(st.session_state.get('pdf_employment_type','Salaried')))
+                index=['Salaried', 'Self-Employed', 'Business'].index(st.session_state.get('pdf_employment_type', 'Salaried')))
         with col2:
             _gender_opts = ['Male', 'Female', 'Non-binary / Other', 'Prefer not to say']
             _gender_default = st.session_state.get('pdf_gender', 'Male')
@@ -14402,16 +14266,10 @@ elif page == "👤 Assessment":
             gender = st.selectbox("Gender", _gender_opts, index=_gender_idx)
             dependents = st.number_input("Number of Dependents", 0, 20, value=int(st.session_state.get('pdf_dependents', 2)))
         with col3:
-            # City Tier — field for fairness monitoring.
-            # FIX A-6: Use format_func so the selectbox displays the full label to the user
-            # but city_tier is derived immediately from CITY_TIERS at render time —
-            # no deferred lookup needed. A caption confirms the stored code.
             _city_keys = list(CITY_TIERS.keys())
-            city_tier_label = st.selectbox(
-                "City Tier", _city_keys, index=0,
-                format_func=lambda k: k  # full descriptive label shown to user
-            )
-            city_tier = CITY_TIERS[city_tier_label]   # short code: 'Tier 1' / 'Tier 2' / etc.
+            city_tier_label = st.selectbox("City Tier", _city_keys, index=0,
+                                           format_func=lambda k: k)
+            city_tier = CITY_TIERS[city_tier_label]
             st.caption(f"Stored as: **{city_tier}**")
             kyc_verified = st.selectbox("KYC Verified", ['Yes', 'No'],
                 index=0 if st.session_state.get('pdf_kyc', True) else 1) == 'Yes'
@@ -14421,7 +14279,6 @@ elif page == "👤 Assessment":
             fraud_flag = st.selectbox("Fraud Flag", ['No', 'Yes'],
                 index=0 if not st.session_state.get('pdf_fraud', False) else 1) == 'Yes'
 
-        # RBI Consent — REQUIRED
         st.markdown('<p class="section-header">📜 RBI Compliance</p>', unsafe_allow_html=True)
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -14438,7 +14295,6 @@ elif page == "👤 Assessment":
                 </div>
             """, unsafe_allow_html=True)
 
-        # Employment tenure
         st.markdown('<p class="section-header">💼 Employment</p>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
@@ -14459,7 +14315,6 @@ elif page == "👤 Assessment":
                 </div>
             """, unsafe_allow_html=True)
 
-        # Credit Bureau
         st.markdown('<p class="section-header">🏦 Credit Bureau</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -14480,7 +14335,6 @@ elif page == "👤 Assessment":
             existing_emi = st.number_input("Existing Total EMI (₹)", 0, 200000,
                 value=int(st.session_state.get('pdf_existing_emi', 15000)), step=1000)
 
-        # Income & Financial
         st.markdown('<p class="section-header">💰 Income & Financial</p>', unsafe_allow_html=True)
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -14505,7 +14359,6 @@ elif page == "👤 Assessment":
             amt_annuity = st.number_input("Requested EMI (₹)", 0, 200000,
                 value=int(st.session_state.get('pdf_amt_annuity', 8500)), step=500)
 
-        # Additional Credit Behaviour
         st.markdown('<p class="section-header">📋 Additional Credit Behaviour</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -14523,8 +14376,10 @@ elif page == "👤 Assessment":
             bureau_risk_flag = st.selectbox("Bureau Risk", _br_opts,
                 index=_br_opts.index(st.session_state.get('pdf_bureau_risk_flag', 'LOW')))
         with col3:
-            inward_bounce_count   = st.number_input("Inward Bounce Count (3M)", 0, 10, value=int(st.session_state.get('pdf_inward_bounce', 0)))
-            salary_missing_months = st.number_input("Missing Salary Months (6M)", 0, 6, value=int(st.session_state.get('pdf_salary_missing', 0)))
+            inward_bounce_count   = st.number_input("Inward Bounce Count (3M)", 0, 10,
+                value=int(st.session_state.get('pdf_inward_bounce', 0)))
+            salary_missing_months = st.number_input("Missing Salary Months (6M)", 0, 6,
+                value=int(st.session_state.get('pdf_salary_missing', 0)))
 
         st.markdown("<br>", unsafe_allow_html=True)
         submitted = st.form_submit_button("🔍 Assess Credit Risk", use_container_width=True)
@@ -14569,8 +14424,7 @@ elif page == "👤 Assessment":
         )
         customer_data['reason_codes'] = reasons
 
-        # Log to fairness monitor (Stage 1 — may be replaced by Stage 2 final decision)
-        log_decision_for_fairness(customer_data, decision_data.get('decision','ERROR'),
+        log_decision_for_fairness(customer_data, decision_data.get('decision', 'ERROR'),
                                   decision_data.get('risk_score', 0), decision_data.get('pd_percentage', 0),
                                   application_id=customer_data.get('application_id'),
                                   source='stage1')
@@ -14686,7 +14540,7 @@ elif page == "👤 Assessment":
                     except Exception as e:
                         st.error(f"Error generating PDF: {str(e)}")
                 else:
-                    st.warning("⚠️ PDF download unavailable — `reportlab` or `pdf_generator.py` not found. Check requirements.txt.")
+                    st.warning("⚠️ PDF download unavailable — `reportlab` or `pdf_generator.py` not found.")
             with col2:
                 if st.button("🔄 Re-Evaluate", key="reevaluate_btn", use_container_width=True):
                     st.rerun()
@@ -14725,7 +14579,7 @@ elif page == "👤 Assessment":
                 'reason_codes': reasons,
                 'policy_checks': decision_data.get('policy_checks', {}),
                 'affordability': decision_data.get('affordability_data', {}),
-                'customer_data': {k: v for k, v in customer_data.items() if k not in ['application_id','timestamp','reason_codes']},
+                'customer_data': {k: v for k, v in customer_data.items() if k not in ['application_id', 'timestamp', 'reason_codes']},
             })
             with st.expander("📋 View Audit Log (JSON)"):
                 st.json(audit_log)
@@ -14740,7 +14594,7 @@ elif page == "👤 Assessment":
                     except Exception as e:
                         st.error(f"Error generating audit PDF: {str(e)}")
                 else:
-                    st.warning("⚠️ Audit PDF download unavailable — `reportlab` or `pdf_generator.py` not found. Check requirements.txt.")
+                    st.warning("⚠️ Audit PDF download unavailable — `reportlab` or `pdf_generator.py` not found.")
             with col2:
                 st.download_button("📥 Download Audit Log (JSON)",
                                    data=json.dumps(audit_log, indent=2),
@@ -14771,14 +14625,14 @@ elif page == "🔬 Stage 2 Analysis":
             st.rerun()
         st.stop()
 
-    stage1_data = st.session_state.get('stage1_data', {})
+    stage1_data     = st.session_state.get('stage1_data', {})
     stage1_customer = st.session_state.get('current_customer_data', {})
 
     st.markdown(f'<div class="info-box" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:white;"><h3 style="margin:0;color:white;">📊 Stage 1 Results</h3><p style="margin:0.5rem 0 0 0;"><strong>Decision:</strong> {st.session_state.get("stage1_decision","N/A")} | <strong>Risk Score:</strong> {stage1_data.get("risk_score","N/A")} | <strong>App ID:</strong> {stage1_customer.get("application_id","N/A")}</p></div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    tab_options = ["Manual Entry", "PDF Upload", "Batch Analysis"]
-    default_tab = st.session_state.get('stage2_selected_tab', 'Manual Entry')
+    tab_options  = ["Manual Entry", "PDF Upload", "Batch Analysis"]
+    default_tab  = st.session_state.get('stage2_selected_tab', 'Manual Entry')
     selected_tab = st.radio("Select input method", tab_options,
                             index=tab_options.index(default_tab) if default_tab in tab_options else 0,
                             horizontal=True, label_visibility="collapsed")
@@ -14789,52 +14643,52 @@ elif page == "🔬 Stage 2 Analysis":
             st.markdown("### 👤 Demographics & Product Enquiries")
             col1, col2, col3 = st.columns(3)
             with col1:
-                gender_s2 = st.selectbox("Gender", ["Male", "Female", "Others"])
+                gender_s2      = st.selectbox("Gender", ["Male", "Female", "Others"])
                 marital_status = st.selectbox("Marital Status", ["Married", "Single", "Divorced", "Widowed", "Others"])
-                education = st.selectbox("Education", ["Graduate", "Post Graduate", "Under Graduate", "Professional", "Others"])
+                education      = st.selectbox("Education", ["Graduate", "Post Graduate", "Under Graduate", "Professional", "Others"])
             with col2:
                 st.markdown("**Credit Score & History**")
-                cibil_score = st.number_input("Credit Score", 300, 900, 720, 10)
-                max_delinquency = st.number_input("Max Delinquency Level", 0, 100, 0)
-                num_times_30dpd = st.number_input("Times 30+ DPD", 0, 50, 0)
-                num_times_60dpd = st.number_input("Times 60+ DPD", 0, 50, 0)
+                cibil_score          = st.number_input("Credit Score", 300, 900, 720, 10)
+                max_delinquency      = st.number_input("Max Delinquency Level", 0, 100, 0)
+                num_times_30dpd      = st.number_input("Times 30+ DPD", 0, 50, 0)
+                num_times_60dpd      = st.number_input("Times 60+ DPD", 0, 50, 0)
                 num_times_delinquent = st.number_input("Total Delinquent", 0, 50, 0)
             with col3:
                 st.markdown("**Recent Behavior**")
-                num_deliq_6m = st.number_input("Delinquencies (6M)", 0, 20, 0)
+                num_deliq_6m  = st.number_input("Delinquencies (6M)", 0, 20, 0)
                 num_deliq_12m = st.number_input("Delinquencies (12M)", 0, 20, 0)
-                max_deliq_6m = st.number_input("Max Delinq (6M)", 0, 100, 0)
+                max_deliq_6m  = st.number_input("Max Delinq (6M)", 0, 100, 0)
                 max_deliq_12m = st.number_input("Max Delinq (12M)", 0, 100, 0)
-                enq_L3m = st.number_input("Inquiries (3M)", 0, 20, 2)
-                enq_L6m = st.number_input("Inquiries (6M)", 0, 30, 4)
-                enq_L12m = st.number_input("Inquiries (12M)", 0, 50, 6)
+                enq_L3m       = st.number_input("Inquiries (3M)", 0, 20, 2)
+                enq_L6m       = st.number_input("Inquiries (6M)", 0, 30, 4)
+                enq_L12m      = st.number_input("Inquiries (12M)", 0, 50, 6)
 
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**Account Quality**")
-                num_std = st.number_input("Standard Accounts", 0, 50, 3)
+                num_std    = st.number_input("Standard Accounts", 0, 50, 3)
                 num_std_6m = st.number_input("Standard (6M)", 0, 50, 3)
-                num_std_12m = st.number_input("Standard (12M)", 0, 50, 3)
-                num_sub = st.number_input("Sub-standard", 0, 20, 0)
+                num_std_12m= st.number_input("Standard (12M)", 0, 50, 3)
+                num_sub    = st.number_input("Sub-standard", 0, 20, 0)
                 num_sub_6m = st.number_input("Sub-standard (6M)", 0, 20, 0)
-                num_dbt = st.number_input("Doubtful", 0, 10, 0)
-                num_lss = st.number_input("Loss", 0, 10, 0)
+                num_dbt    = st.number_input("Doubtful", 0, 10, 0)
+                num_lss    = st.number_input("Loss", 0, 10, 0)
             with col2:
                 st.markdown("**Utilization**")
-                pct_active_tls = st.number_input("% Active TLs", 0.0, 1.0, 0.60, 0.01)
-                pct_current_bal = st.number_input("Current Balance %", 0.0, 1.0, 0.30, 0.01)
-                cc_utilization = st.number_input("CC Utilization", 0.0, 1.0, 0.35, 0.01)
-                pl_utilization = st.number_input("PL Utilization", 0.0, 1.0, 0.25, 0.01)
-                max_unsec_exposure = st.number_input("Max Unsec Exposure %", 0, 100, 30)
+                pct_active_tls    = st.number_input("% Active TLs", 0.0, 1.0, 0.60, 0.01)
+                pct_current_bal   = st.number_input("Current Balance %", 0.0, 1.0, 0.30, 0.01)
+                cc_utilization    = st.number_input("CC Utilization", 0.0, 1.0, 0.35, 0.01)
+                pl_utilization    = st.number_input("PL Utilization", 0.0, 1.0, 0.25, 0.01)
+                max_unsec_exposure= st.number_input("Max Unsec Exposure %", 0, 100, 30)
             with col3:
                 st.markdown("**Demographics & Products**")
-                age_cibil = st.number_input("Age", 24, 70, int(stage1_customer.get('age', 35)))
-                net_monthly_income = st.number_input("Net Monthly Income", 0, 1000000, int(stage1_customer.get('avg_salary_6m', 50000)), 5000)
-                time_curr_employer = st.number_input("Employment Tenure (months)", 0, 600, int(stage1_customer.get('employment_tenure_months', 24)))
-                cc_flag = st.selectbox("Credit Card", ["Yes", "No"]) == "Yes"
-                pl_flag = st.selectbox("Personal Loan", ["Yes", "No"]) == "No"
-                hl_flag = st.selectbox("Home Loan", ["Yes", "No"]) == "No"
-                gl_flag = st.selectbox("Gold Loan", ["Yes", "No"]) == "No"
+                age_cibil         = st.number_input("Age", 24, 70, int(stage1_customer.get('age', 35)))
+                net_monthly_income= st.number_input("Net Monthly Income", 0, 1000000, int(stage1_customer.get('avg_salary_6m', 50000)), 5000)
+                time_curr_employer= st.number_input("Employment Tenure (months)", 0, 600, int(stage1_customer.get('employment_tenure_months', 24)))
+                cc_flag = st.selectbox("Credit Card",    ["Yes", "No"]) == "Yes"
+                pl_flag = st.selectbox("Personal Loan",  ["Yes", "No"]) == "No"
+                hl_flag = st.selectbox("Home Loan",      ["Yes", "No"]) == "No"
+                gl_flag = st.selectbox("Gold Loan",      ["Yes", "No"]) == "No"
 
             st.markdown("<br>", unsafe_allow_html=True)
             submitted_s2 = st.form_submit_button("🔬 Run Stage 2 Analysis", use_container_width=True, type="primary")
@@ -14842,8 +14696,8 @@ elif page == "🔬 Stage 2 Analysis":
         if submitted_s2:
             with st.spinner("🔬 Running Stage 2 CIBIL Deep Analysis..."):
                 enhanced_customer_data = stage1_customer.copy()
-                _s1_inc = stage1_customer.get('avg_salary_6m', 50000)
-                _s2_inc = net_monthly_income or 0
+                _s1_inc    = stage1_customer.get('avg_salary_6m', 50000)
+                _s2_inc    = net_monthly_income or 0
                 _final_income = _s1_inc if (_s2_inc > 0 and _s2_inc < _s1_inc * 0.4) else (_s2_inc or _s1_inc)
                 if _s2_inc > 0 and _s2_inc < _s1_inc * 0.4:
                     st.warning(f'⚠️ CIBIL income ₹{_s2_inc:,} much lower than application income ₹{_s1_inc:,}. Using application income.')
@@ -14890,22 +14744,21 @@ elif page == "🔬 Stage 2 Analysis":
                     if extraction_result.get('success', False):
                         st.success("✅ PDF extraction successful!")
 
-                        # ── Summary metrics ──────────────────────────────────
                         c1, c2, c3, c4 = st.columns(4)
                         c1.metric("Credit Score",    extraction_result.get('Credit_Score', 'N/A'))
                         c2.metric("DPD 30+ Count",   extraction_result.get('num_times_30p_dpd', 0))
                         c3.metric("DPD 60+ Count",   extraction_result.get('num_times_60p_dpd', 0))
                         c4.metric("Active Accounts", extraction_result.get('num_std', 0))
                         c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Monthly Income", f"₹{extraction_result.get('NETMONTHLYINCOME', 0):,}")
-                        c2.metric("Employment Tenure", f"{extraction_result.get('Time_With_Curr_Empr',0)} mo")
-                        c3.metric("Written Off",    extraction_result.get('num_lss', 0))
-                        c4.metric("Enquiries (3M)", extraction_result.get('enq_L3m', 0))
+                        c1.metric("Monthly Income",     f"₹{extraction_result.get('NETMONTHLYINCOME', 0):,}")
+                        c2.metric("Employment Tenure",  f"{extraction_result.get('Time_With_Curr_Empr',0)} mo")
+                        c3.metric("Written Off",        extraction_result.get('num_lss', 0))
+                        c4.metric("Enquiries (3M)",     extraction_result.get('enq_L3m', 0))
                         c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Payment Discipline", extraction_result.get('payment_discipline_flag','—'))
-                        c2.metric("Cashflow Health",    extraction_result.get('cashflow_health','—'))
-                        c3.metric("Bureau Risk",        extraction_result.get('bureau_risk_flag','—'))
-                        c4.metric("Salary Stability",   extraction_result.get('salary_stability_flag','—'))
+                        c1.metric("Payment Discipline", extraction_result.get('payment_discipline_flag', '—'))
+                        c2.metric("Cashflow Health",    extraction_result.get('cashflow_health', '—'))
+                        c3.metric("Bureau Risk",        extraction_result.get('bureau_risk_flag', '—'))
+                        c4.metric("Salary Stability",   extraction_result.get('salary_stability_flag', '—'))
 
                         if extraction_result.get('written_off_count', 0) > 0:
                             st.warning(f"⚠️ {extraction_result['written_off_count']} written-off accounts detected — score may be overridden.")
@@ -14915,14 +14768,10 @@ elif page == "🔬 Stage 2 Analysis":
                             st.info(f"💡 Bureau-only PDF — net surplus estimated from income: ₹{_surplus_proxy:,}")
 
                         with st.expander("📋 View all extracted fields"):
-                            _display = {k: v for k, v in extraction_result.items() if k not in ('raw_text','success','extraction_method')}
+                            _display = {k: v for k, v in extraction_result.items() if k not in ('raw_text', 'success', 'extraction_method')}
                             st.json(_display)
 
-                        # ── Build enhanced_customer_data ─────────────────────
-                        # Start from Stage 1 customer (has gender, city_tier, rbi_consent, loan details)
                         enhanced_customer_data = stage1_customer.copy()
-
-                        # Apply ALL extracted fields directly — the new extractor maps every column
                         _skip = {'raw_text', 'success', 'extraction_method',
                                  'loan_amount', 'loan_tenure_months', 'interest_rate',
                                  'rbi_consent', 'kyc_verified', 'bankruptcy_flag', 'fraud_flag'}
@@ -14930,15 +14779,13 @@ elif page == "🔬 Stage 2 Analysis":
                             if k not in _skip and v is not None:
                                 enhanced_customer_data[k] = v
 
-                        # Income safety: if CIBIL income << Stage 1 application income, keep Stage 1
                         _s1_inc = stage1_customer.get('avg_salary_6m', 50000)
                         _s2_inc = extraction_result.get('NETMONTHLYINCOME', 0) or 0
                         if 0 < _s2_inc < _s1_inc * 0.4:
-                            enhanced_customer_data['avg_salary_6m'] = _s1_inc
-                            enhanced_customer_data['AMT_INCOME_TOTAL'] = _s1_inc * 12
+                            enhanced_customer_data['avg_salary_6m']     = _s1_inc
+                            enhanced_customer_data['AMT_INCOME_TOTAL']  = _s1_inc * 12
                             st.warning(f"⚠️ CIBIL income ₹{_s2_inc:,} << application income ₹{_s1_inc:,} — using application income for FOIR.")
 
-                        # Sentinel cleanup
                         enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
 
                         with st.spinner("🔬 Running Stage 2 analysis..."):
@@ -14969,7 +14816,7 @@ elif page == "📊 Batch Process":
             with st.expander("📄 Preview Uploaded Data"):
                 st.dataframe(df.head(), use_container_width=True)
             required_cols = ['age', 'employment_type', 'avg_salary_6m', 'bureau_score', 'loan_amount']
-            missing_cols = [col for col in required_cols if col not in df.columns]
+            missing_cols  = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
             else:
@@ -14983,42 +14830,43 @@ elif page == "📊 Batch Process":
                         c1, c2, c3, c4 = st.columns(4)
                         with c1: st.metric("✅ Approved", len(results_df[results_df['decision'] == 'APPROVE']))
                         with c2: st.metric("❌ Rejected", len(results_df[results_df['decision'] == 'REJECT']))
-                        with c3: st.metric("⚠️ Review", len(results_df[results_df['decision'] == 'REVIEW']))
+                        with c3: st.metric("⚠️ Review",   len(results_df[results_df['decision'] == 'REVIEW']))
                         with c4: st.metric("📊 Avg Risk Score", f"{results_df['risk_score'].mean():.0f}")
                     with tab2:
                         col1, col2 = st.columns(2)
                         with col1:
-                            dc = results_df['decision'].value_counts()
+                            dc   = results_df['decision'].value_counts()
                             fig1 = px.pie(values=dc.values, names=dc.index, title="Decision Distribution",
-                                          color=dc.index, color_discrete_map={'APPROVE':'#48bb78','REVIEW':'#ed8936','REJECT':'#f56565'})
+                                          color=dc.index, color_discrete_map={'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'})
                             st.plotly_chart(fig1, use_container_width=True)
                         with col2:
                             fig2 = px.histogram(results_df, x='risk_score', title="Risk Score Distribution",
                                                 nbins=20, color_discrete_sequence=['#587042'])
                             st.plotly_chart(fig2, use_container_width=True)
-                        # Fairness charts from batch
                         if 'gender' in results_df.columns and results_df['gender'].nunique() > 1:
                             results_df['approved_num'] = (results_df['decision'] == 'APPROVE').astype(int)
-                            grp = results_df.groupby('gender')['approved_num'].mean().reset_index()
+                            grp  = results_df.groupby('gender')['approved_num'].mean().reset_index()
                             grp['Approval Rate %'] = (grp['approved_num'] * 100).round(1)
                             fig3 = px.bar(grp, x='gender', y='Approval Rate %', title='Approval Rate by Gender (Batch)',
-                                          color='Approval Rate %', color_continuous_scale=['#f56565','#48bb78'], range_color=[0,100])
+                                          color='Approval Rate %', color_continuous_scale=['#f56565', '#48bb78'], range_color=[0, 100])
                             st.plotly_chart(fig3, use_container_width=True)
                         if 'city_tier' in results_df.columns and results_df['city_tier'].nunique() > 1:
                             results_df['approved_num'] = (results_df['decision'] == 'APPROVE').astype(int)
                             grp2 = results_df.groupby('city_tier')['approved_num'].mean().reset_index()
                             grp2['Approval Rate %'] = (grp2['approved_num'] * 100).round(1)
                             fig4 = px.bar(grp2, x='city_tier', y='Approval Rate %', title='Approval Rate by City Tier (Batch)',
-                                          color='Approval Rate %', color_continuous_scale=['#f56565','#48bb78'], range_color=[0,100])
+                                          color='Approval Rate %', color_continuous_scale=['#f56565', '#48bb78'], range_color=[0, 100])
                             st.plotly_chart(fig4, use_container_width=True)
                     with tab3:
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.download_button("📥 Download as CSV", data=results_df.to_csv(index=False),
+                            st.download_button("📥 Download as CSV",
+                                               data=results_df.to_csv(index=False),
                                                file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                                mime="text/csv", use_container_width=True)
                         with col2:
-                            st.download_button("📥 Download as JSON", data=results_df.to_json(orient='records', indent=2),
+                            st.download_button("📥 Download as JSON",
+                                               data=results_df.to_json(orient='records', indent=2),
                                                file_name=f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                                                mime="application/json", use_container_width=True)
         except Exception as e:
@@ -15091,7 +14939,7 @@ elif page == "ℹ️ About":
                     <li>Three-layer decision engine</li>
                     <li>Real-time risk assessment</li>
                     <li>Industry-standard PD calculation</li>
-                    <li>FOIR calculation & validation</li>
+                    <li>FOIR calculation &amp; validation</li>
                     <li>Automated reason generation</li>
                     <li>Complete audit trail (PDF)</li>
                     <li>OCR auto-fill with categorical inference</li>
