@@ -547,6 +547,7 @@
 
 
 
+
 """
 STAGE 2 CIBIL DEEP DIVE ENGINE
 Separate module for 2-stage credit risk system
@@ -660,8 +661,10 @@ def generate_stage2_reasons(customer_data, stage2_tier, tier_probs, combined_ris
         reasons.append(f"⚠️ High personal loan utilization ({pl_util*100:.1f}%).")
 
     dpd_90 = customer_data.get('dpd_90_count_6m', 0)
-    if dpd_90 > 0:
-        reasons.append(f"❌ {dpd_90} instance(s) of 90+ days past due in last 6 months.")
+    if dpd_90 > 5:
+        reasons.append(f"❌ {dpd_90} instance(s) of 90+ DPD — Severe (>5, hard reject threshold).")
+    elif dpd_90 >= 1:
+        reasons.append(f"⚠️ {dpd_90} instance(s) of 90+ DPD — Review required (1–5 range).")
 
     dpd_30 = customer_data.get('num_times_30p_dpd', 0)
     if dpd_30 >= 3:
