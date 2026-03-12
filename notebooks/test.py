@@ -2577,6 +2577,9 @@
 
 
 
+
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -3370,7 +3373,7 @@ def extract_cibil_from_pdf(uploaded_file):
             'active_loans_count':        float(active_count),
             # Bureau
             'bureau_score':              float(credit_score),
-            'hard_reject_flag':          1 if (dpd_90_count > 0 or written_off_count > 0 or credit_score < 550) else 0,
+            'hard_reject_flag':          1 if (dpd_90_count > 5 or written_off_count > 0 or credit_score < 550) else 0  # DPD90 1-5 = REVIEW not hard reject,
         }
 
         # ── 15. INFERRED CATEGORICAL FLAGS (60k) ─────────────────────────────
@@ -3568,12 +3571,25 @@ def make_hybrid_decision_enhanced(customer_dict):
     bankruptcy_flag = customer_dict.get('bankruptcy_flag', False)
     fraud_flag = customer_dict.get('fraud_flag', False)
 
-    if age < 24 or age > 70:
-        policy_checks['age'] = f"❌ Age {age} (Required: 24-70)"
-        return {'decision': "REJECT", 'reason': "Policy Gate: Age outside allowed range", 'confidence': 0,
+    # AGE POLICY GATE — split by employment type per spec
+    # UI allows 18–70 for input flexibility, but policy enforces:
+    #   - All types:       age must be > 24  (≤ 24 → too young)
+    #   - Salaried:        age must be ≤ 65  (retirement risk)
+    #   - Self-Employed / Business: age must be ≤ 70
+    _is_salaried = employment_type == 'Salaried'
+    _max_age     = 65 if _is_salaried else 70
+    _age_label   = "24–65 for Salaried" if _is_salaried else "24–70 for Self-Employed/Business"
+    if age <= 24:
+        policy_checks['age'] = f"❌ Age {age} — Too young (Min: 25)"
+        return {'decision': "REJECT", 'reason': "Policy Gate: Applicant too young (minimum age 25)", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 100.0, 'affordability_data': {}}
-    policy_checks['age'] = f"✅ Age {age} (Valid)"
+    if age > _max_age:
+        policy_checks['age'] = f"❌ Age {age} — Exceeds max ({_age_label})"
+        return {'decision': "REJECT", 'reason': f"Policy Gate: Age exceeds maximum for {employment_type} ({_max_age})", 'confidence': 0,
+                'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
+                'pd_percentage': 100.0, 'affordability_data': {}}
+    policy_checks['age'] = f"✅ Age {age} (Valid — {_age_label})"
 
     if not kyc_verified:
         policy_checks['kyc'] = "❌ KYC Not Verified"
@@ -3644,17 +3660,21 @@ def make_hybrid_decision_enhanced(customer_dict):
                 'pd_percentage': 100.0, 'affordability_data': {}}
     policy_checks['bureau'] = f"✅ Bureau Score {bureau_score}"
 
-    # POLICY DECISION (M2): DPD90 hard gate = ANY DPD90 > 0 → instant REJECT
-    # This is the active production rule. The legacy calculate_risk_score()
-    # gives a reduced penalty for DPD90=1, but that function is a FALLBACK ONLY
-    # and does not affect this code path. If policy changes to allow 1 DPD90
-    # instance with a review, change this to: if dpd_90 > 1 (REJECT) / dpd_90 == 1 (REVIEW).
-    if dpd_90 > 0:
-        policy_checks['dpd'] = f"❌ {dpd_90} instances of 90+ DPD"
-        return {'decision': "REJECT", 'reason': "Policy Gate: Severe delinquency", 'confidence': 0,
+    # DPD90 TIERED GATE:
+    #   0     -> PASS (clean)
+    #   1-5   -> REVIEW flag (elevated risk, underwriter required)
+    #   > 5   -> REJECT (severe delinquency, hard stop)
+    dpd_90_review_flag = False
+    if dpd_90 > 5:
+        policy_checks['dpd'] = f"❌ {dpd_90} instance(s) of 90+ DPD — Hard Reject (Max: 5)"
+        return {'decision': "REJECT", 'reason': "Policy Gate: Severe delinquency (90+ DPD > 5)", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 100.0, 'affordability_data': {}}
-    policy_checks['dpd'] = "✅ No 90+ DPD"
+    elif dpd_90 >= 1:
+        dpd_90_review_flag = True
+        policy_checks['dpd'] = f"⚠️ {dpd_90} instance(s) of 90+ DPD — Underwriter Review Required"
+    else:
+        policy_checks['dpd'] = "✅ No 90+ DPD (Clean)"
     policy_checks['utilization'] = (f"⚠️ High utilization {credit_utilization}%" if credit_utilization > 80
                                     else f"✅ Utilization {credit_utilization}%")
     policy_checks['inquiries'] = (f"⚠️ {recent_inquiries} recent inquiries" if recent_inquiries > 5
@@ -3706,6 +3726,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
+    if dpd_90_review_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"  # DPD90 1-5 forces review
 
     risk_score = calculate_final_risk_score(
         bureau_score=bureau_score, ml_confidence=confidence, foir=foir,
@@ -4432,7 +4453,7 @@ elif page == "👤 Assessment":
             customer_name = st.text_input("Customer Name (Optional)", value="", placeholder="e.g. Ramesh Kumar")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            age = st.number_input("Age", 24, 70, value=int(st.session_state.get('pdf_age', 35)))
+            age = st.number_input("Age", 18, 70, value=int(st.session_state.get('pdf_age', 35)))
             employment_type = st.selectbox("Employment Type", ['Salaried', 'Self-Employed', 'Business'],
                 index=['Salaried','Self-Employed','Business'].index(st.session_state.get('pdf_employment_type','Salaried')))
         with col2:
@@ -4691,7 +4712,7 @@ elif page == "👤 Assessment":
                     {f"Age: {age}": "", f"Employment: {employment_type}": "",
                      f"City Tier: {city_tier}": "", f"Dependents: {dependents}": "",
                      f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": ""},
-                    {f"Age: {age}": "pass" if 24 <= age <= 70 else "fail",
+                    {f"Age: {age}": "pass" if (age > 24 and age <= (65 if employment_type == 'Salaried' else 70)) else "fail",
                      f"Employment: {employment_type}": "pass",
                      f"City Tier: {city_tier}": "pass",
                      f"Dependents: {dependents}": "pass" if dependents <= 5 else "warning",
@@ -4701,7 +4722,7 @@ elif page == "👤 Assessment":
                     {f"Bureau Score: {bureau_score}": "", f"DPD 90+: {dpd_90_6m}": "",
                      f"Utilization: {credit_utilization}%": ""},
                     {f"Bureau Score: {bureau_score}": "pass" if bureau_score >= 550 else "fail",
-                     f"DPD 90+: {dpd_90_6m}": "pass" if dpd_90_6m == 0 else "fail",
+                     f"DPD 90+: {dpd_90_6m}": "pass" if dpd_90_6m == 0 else ("warning" if dpd_90_6m <= 5 else "fail"),
                      f"Utilization: {credit_utilization}%": "pass" if credit_utilization <= 40 else "warning"})
             with col3:
                 render_info_card("Affordability", "💰",
@@ -4870,7 +4891,7 @@ elif page == "🔬 Stage 2 Analysis":
                 max_unsec_exposure = st.number_input("Max Unsec Exposure %", 0, 100, 30)
             with col3:
                 st.markdown("**Demographics & Products**")
-                age_cibil = st.number_input("Age", 24, 70, int(stage1_customer.get('age', 35)))
+                age_cibil = st.number_input("Age", 18, 70, int(stage1_customer.get('age', 35)))
                 net_monthly_income = st.number_input("Net Monthly Income", 0, 1000000, int(stage1_customer.get('avg_salary_6m', 50000)), 5000)
                 time_curr_employer = st.number_input("Employment Tenure (months)", 0, 600, int(stage1_customer.get('employment_tenure_months', 24)))
                 cc_flag = st.selectbox("Credit Card", ["Yes", "No"]) == "Yes"
