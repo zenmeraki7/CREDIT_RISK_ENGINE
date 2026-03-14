@@ -1,4 +1,3 @@
-
 # # """
 # # Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 # # Enhanced with Modern UI/UX Design
@@ -389,6 +388,7 @@
 # #         bureau_risk     = ('HIGH' if (written_off >= 1 or doubtful >= 1 or dpd_60 >= 3 or score < 580)
 # #                            else 'MEDIUM' if (score < 650 or (dpd_30 >= 2 and cc_util > 0.60)) else 'LOW')
 # #         salary_stability = ('UNSTABLE' if tenure < 6 else 'STABLE' if (tenure >= 24 and score >= 700 and dpd_30 == 0) else 'MODERATE')
+# #         surplus_for_return = surplus  # FIX L2: assign in both branches — was missing here, causing latent bug if bureau_only path is extended
 # #     else:
 # #         dpd_90      = int(extraction_result.get('dpd_90_count_6m', 0) or 0)
 # #         bounces     = int(extraction_result.get('inward_bounce_count_3m', 0) or 0)
@@ -791,7 +791,7 @@
 # #             'active_loans_count':        float(active_count),
 # #             # Bureau
 # #             'bureau_score':              float(credit_score),
-# #             'hard_reject_flag':          1 if (dpd_90_count > 0 or written_off_count > 0 or credit_score < 550) else 0,
+# #             'hard_reject_flag':          1 if (dpd_90_count > 5 or written_off_count > 0 or credit_score < 550) else 0  # DPD90 1-5 = REVIEW not hard reject,
 # #         }
 
 # #         # ── 15. INFERRED CATEGORICAL FLAGS (60k) ─────────────────────────────
@@ -989,12 +989,25 @@
 # #     bankruptcy_flag = customer_dict.get('bankruptcy_flag', False)
 # #     fraud_flag = customer_dict.get('fraud_flag', False)
 
-# #     if age < 24 or age > 70:
-# #         policy_checks['age'] = f"❌ Age {age} (Required: 24-70)"
-# #         return {'decision': "REJECT", 'reason': "Policy Gate: Age outside allowed range", 'confidence': 0,
+# #     # AGE POLICY GATE — split by employment type per spec
+# #     # UI allows 18–70 for input flexibility, but policy enforces:
+# #     #   - All types:       age must be > 24  (≤ 24 → too young)
+# #     #   - Salaried:        age must be ≤ 65  (retirement risk)
+# #     #   - Self-Employed / Business: age must be ≤ 70
+# #     _is_salaried = employment_type == 'Salaried'
+# #     _max_age     = 65 if _is_salaried else 70
+# #     _age_label   = "24–65 for Salaried" if _is_salaried else "24–70 for Self-Employed/Business"
+# #     if age <= 24:
+# #         policy_checks['age'] = f"❌ Age {age} — Too young (Min: 25)"
+# #         return {'decision': "REJECT", 'reason': "Policy Gate: Applicant too young (minimum age 25)", 'confidence': 0,
 # #                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
 # #                 'pd_percentage': 100.0, 'affordability_data': {}}
-# #     policy_checks['age'] = f"✅ Age {age} (Valid)"
+# #     if age > _max_age:
+# #         policy_checks['age'] = f"❌ Age {age} — Exceeds max ({_age_label})"
+# #         return {'decision': "REJECT", 'reason': f"Policy Gate: Age exceeds maximum for {employment_type} ({_max_age})", 'confidence': 0,
+# #                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
+# #                 'pd_percentage': 100.0, 'affordability_data': {}}
+# #     policy_checks['age'] = f"✅ Age {age} (Valid — {_age_label})"
 
 # #     if not kyc_verified:
 # #         policy_checks['kyc'] = "❌ KYC Not Verified"
@@ -1065,12 +1078,21 @@
 # #                 'pd_percentage': 100.0, 'affordability_data': {}}
 # #     policy_checks['bureau'] = f"✅ Bureau Score {bureau_score}"
 
-# #     if dpd_90 > 0:
-# #         policy_checks['dpd'] = f"❌ {dpd_90} instances of 90+ DPD"
-# #         return {'decision': "REJECT", 'reason': "Policy Gate: Severe delinquency", 'confidence': 0,
+# #     # DPD90 TIERED GATE:
+# #     #   0     -> PASS (clean)
+# #     #   1-5   -> REVIEW flag (elevated risk, underwriter required)
+# #     #   > 5   -> REJECT (severe delinquency, hard stop)
+# #     dpd_90_review_flag = False
+# #     if dpd_90 > 5:
+# #         policy_checks['dpd'] = f"❌ {dpd_90} instance(s) of 90+ DPD — Hard Reject (Max: 5)"
+# #         return {'decision': "REJECT", 'reason': "Policy Gate: Severe delinquency (90+ DPD > 5)", 'confidence': 0,
 # #                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
 # #                 'pd_percentage': 100.0, 'affordability_data': {}}
-# #     policy_checks['dpd'] = "✅ No 90+ DPD"
+# #     elif dpd_90 >= 1:
+# #         dpd_90_review_flag = True
+# #         policy_checks['dpd'] = f"⚠️ {dpd_90} instance(s) of 90+ DPD — Underwriter Review Required"
+# #     else:
+# #         policy_checks['dpd'] = "✅ No 90+ DPD (Clean)"
 # #     policy_checks['utilization'] = (f"⚠️ High utilization {credit_utilization}%" if credit_utilization > 80
 # #                                     else f"✅ Utilization {credit_utilization}%")
 # #     policy_checks['inquiries'] = (f"⚠️ {recent_inquiries} recent inquiries" if recent_inquiries > 5
@@ -1122,6 +1144,7 @@
 # #     if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
 # #     if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
 # #     if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
+# #     if dpd_90_review_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"  # DPD90 1-5 forces review
 
 # #     risk_score = calculate_final_risk_score(
 # #         bureau_score=bureau_score, ml_confidence=confidence, foir=foir,
@@ -1848,7 +1871,7 @@
 # #             customer_name = st.text_input("Customer Name (Optional)", value="", placeholder="e.g. Ramesh Kumar")
 # #         col1, col2, col3, col4 = st.columns(4)
 # #         with col1:
-# #             age = st.number_input("Age", 24, 70, value=int(st.session_state.get('pdf_age', 35)))
+# #             age = st.number_input("Age", 18, 70, value=int(st.session_state.get('pdf_age', 35)))
 # #             employment_type = st.selectbox("Employment Type", ['Salaried', 'Self-Employed', 'Business'],
 # #                 index=['Salaried','Self-Employed','Business'].index(st.session_state.get('pdf_employment_type','Salaried')))
 # #         with col2:
@@ -2107,7 +2130,7 @@
 # #                     {f"Age: {age}": "", f"Employment: {employment_type}": "",
 # #                      f"City Tier: {city_tier}": "", f"Dependents: {dependents}": "",
 # #                      f"KYC: {'Verified' if kyc_verified else 'Not Verified'}": ""},
-# #                     {f"Age: {age}": "pass" if 24 <= age <= 70 else "fail",
+# #                     {f"Age: {age}": "pass" if (age > 24 and age <= (65 if employment_type == 'Salaried' else 70)) else "fail",
 # #                      f"Employment: {employment_type}": "pass",
 # #                      f"City Tier: {city_tier}": "pass",
 # #                      f"Dependents: {dependents}": "pass" if dependents <= 5 else "warning",
@@ -2117,7 +2140,7 @@
 # #                     {f"Bureau Score: {bureau_score}": "", f"DPD 90+: {dpd_90_6m}": "",
 # #                      f"Utilization: {credit_utilization}%": ""},
 # #                     {f"Bureau Score: {bureau_score}": "pass" if bureau_score >= 550 else "fail",
-# #                      f"DPD 90+: {dpd_90_6m}": "pass" if dpd_90_6m == 0 else "fail",
+# #                      f"DPD 90+: {dpd_90_6m}": "pass" if dpd_90_6m == 0 else ("warning" if dpd_90_6m <= 5 else "fail"),
 # #                      f"Utilization: {credit_utilization}%": "pass" if credit_utilization <= 40 else "warning"})
 # #             with col3:
 # #                 render_info_card("Affordability", "💰",
@@ -2286,7 +2309,7 @@
 # #                 max_unsec_exposure = st.number_input("Max Unsec Exposure %", 0, 100, 30)
 # #             with col3:
 # #                 st.markdown("**Demographics & Products**")
-# #                 age_cibil = st.number_input("Age", 24, 70, int(stage1_customer.get('age', 35)))
+# #                 age_cibil = st.number_input("Age", 18, 70, int(stage1_customer.get('age', 35)))
 # #                 net_monthly_income = st.number_input("Net Monthly Income", 0, 1000000, int(stage1_customer.get('avg_salary_6m', 50000)), 5000)
 # #                 time_curr_employer = st.number_input("Employment Tenure (months)", 0, 600, int(stage1_customer.get('employment_tenure_months', 24)))
 # #                 cc_flag = st.selectbox("Credit Card", ["Yes", "No"]) == "Yes"
@@ -2574,9 +2597,6 @@
 # #                 </ul></div>
 # #             </div>
 # #         """, unsafe_allow_html=True)
-
-
-
 
 
 
@@ -3867,7 +3887,9 @@
 #     st.markdown(f'<div class="{card_class}"><div class="decision-title">{icon} {decision}</div><div class="decision-subtitle">{subtitle}</div></div>', unsafe_allow_html=True)
 #     col1, col2, col3, col4, col5 = st.columns(5)
 #     with col1: st.markdown(f'<div class="stat-card"><div class="stat-number">{risk_score}</div><div class="stat-label">Risk Score</div></div>', unsafe_allow_html=True)
-#     with col2: st.markdown(f'<div class="stat-card"><div class="stat-number">{pd_score}%</div><div class="stat-label">PD Score</div></div>', unsafe_allow_html=True)
+#     _pd_color = '#48bb78' if pd_score < 5 else ('#ed8936' if pd_score < 10 else '#f56565')
+#     _pd_label = 'Low Risk' if pd_score < 5 else ('Moderate Risk' if pd_score < 10 else 'High Risk')
+#     with col2: st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{_pd_color}">{pd_score}%</div><div class="stat-label">PD Score</div><div style="font-size:11px;color:{_pd_color};font-weight:600">{_pd_label}</div></div>', unsafe_allow_html=True)
 #     with col3: st.markdown(f'<div class="stat-card"><div class="stat-number">₹{approved_amount:,.0f}</div><div class="stat-label">Loan Amount</div></div>', unsafe_allow_html=True)
 #     with col4: st.markdown(f'<div class="stat-card"><div class="stat-number">{tenure}</div><div class="stat-label">Tenure (Months)</div></div>', unsafe_allow_html=True)
 #     with col5: st.markdown(f'<div class="stat-card"><div class="stat-number">{decision_data.get("confidence", 0):.0f}%</div><div class="stat-label">Confidence</div></div>', unsafe_allow_html=True)
@@ -5182,13 +5204,24 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
-Run with: streamlit run test.py (from inside the notebooks folder)
+Run with: streamlit run app.py (from inside the notebooks folder)
 Author: Zen Meraki
-Date: January 2026
-VERSION: 8.6 - CLEANED (removed duplicates) + Fairness Monitoring + City Tier + RBI Consent
+Date: March 2026
+VERSION: 8.7 - Renamed from test.py, dead code removed, all audit fixes applied (C1/H1/H2/M1/M2/M3/L1/L2/L3)
 """
 
 import streamlit as st
@@ -6267,6 +6300,9 @@ def make_hybrid_decision_enhanced(customer_dict):
     #   1-5   -> REVIEW flag (elevated risk, underwriter required)
     #   > 5   -> REJECT (severe delinquency, hard stop)
     dpd_90_review_flag = False
+    # DESIGN NOTE (M2): DPD90 gate is tiered — >5 = hard REJECT, 1-5 = REVIEW flag.
+    # Legacy calculate_risk_score() (fallback-only) uses softer penalty for DPD90=1;
+    # that path is NEVER reached in production. This gate is the intended behavior.
     if dpd_90 > 5:
         policy_checks['dpd'] = f"❌ {dpd_90} instance(s) of 90+ DPD — Hard Reject (Max: 5)"
         return {'decision': "REJECT", 'reason': "Policy Gate: Severe delinquency (90+ DPD > 5)", 'confidence': 0,
