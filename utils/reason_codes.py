@@ -1,7 +1,5 @@
 
 
-
-
 # """
 # Reason Code Generation System
 # Generates human-readable explanations for credit decisions.
@@ -210,19 +208,19 @@
 #     return reasons[:3] if reasons else ['Decision based on comprehensive model assessment']
 
 
-
+ 
 """
 Reason Code Generation System
 Generates human-readable explanations for credit decisions.
-
+ 
 Author: Zen Meraki
 Version: 8.7 — Aligned with tiered DPD 90+ gate (0-1 pass / 2-5 review / >5 reject)
 """
-
+ 
 # =============================================================================
 # REASON CODE TEMPLATES
 # =============================================================================
-
+ 
 APPROVAL_REASONS = {
     'high_bureau':         'Excellent credit score ({score})',
     'stable_employment':   'Stable employment history ({tenure} months)',
@@ -232,7 +230,7 @@ APPROVAL_REASONS = {
     'low_utilization':     'Low credit utilization ({util}%)',
     'low_inquiries':       'Minimal recent credit inquiries ({inq} in 3M)',
 }
-
+ 
 REJECTION_REASONS = {
     'low_bureau':          'Credit score below minimum ({score} < 550)',
     'high_foir':           'EMI burden too high (FOIR: {foir:.1f}% > 50%)',
@@ -248,7 +246,7 @@ REJECTION_REASONS = {
     'fraud':               'Fraud flag detected on application',
     'net_surplus_critical':'Net cash surplus critically negative (Rs.{surplus:,})',
 }
-
+ 
 REVIEW_REASONS = {
     'borderline_bureau':   'Credit score in borderline range ({score} -- manual review required)',
     'moderate_foir':       'EMI burden elevated (FOIR: {foir:.1f}% -- within limit but requires review)',
@@ -265,28 +263,28 @@ REVIEW_REASONS = {
     'multi_account_exposure': 'Multiple active credit accounts ({loans}) with moderate combined exposure -- review recommended',
     'income_vs_exposure':  'Strong income profile but combined credit exposure warrants review',
 }
-
-
+ 
+ 
 def generate_reason_codes(decision, customer_data, affordability_data, policy_checks):
     """
     Generate up to 3 reason codes explaining the credit decision.
-
+ 
     DPD 90+ tiers (aligned with make_hybrid_decision_enhanced):
       0-1  = pass (APPROVE eligible)
       2-5  = review flag
       >5   = hard REJECT
-
+ 
     Args:
         decision:           'APPROVE' | 'REVIEW' | 'REJECT'
         customer_data:      dict with customer fields
         affordability_data: output of calculate_affordability()
         policy_checks:      dict of policy gate results
-
+ 
     Returns:
         List of up to 3 reason strings.
     """
     reasons = []
-
+ 
     bureau_score      = customer_data.get('bureau_score', 0)
     foir              = affordability_data.get('foir_percentage', 0)
     dpd_90            = customer_data.get('dpd_90_count_6m', 0)
@@ -301,39 +299,39 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
     recent_inquiries  = customer_data.get('recent_inquiries_3m', 0)
     salary_stability  = customer_data.get('salary_stability_flag', 'STABLE')
     net_surplus       = customer_data.get('net_cash_surplus_6m', 0)
-
+ 
     def _failed(key):
         return 'X' in str(policy_checks.get(key, '')) or 'FAILED' in str(policy_checks.get(key, '')).upper() or (
             len(str(policy_checks.get(key, ''))) > 0 and str(policy_checks.get(key, ''))[0:2] in ['\u274c', '❌']
         ) or '\u274c' in str(policy_checks.get(key, ''))
-
+ 
     # =========================================================================
     # APPROVE
     # =========================================================================
     if decision == "APPROVE":
         if bureau_score >= 750:
             reasons.append(APPROVAL_REASONS['high_bureau'].format(score=bureau_score))
-
+ 
         if employment_type == 'Salaried' and employment_tenure >= 24:
             reasons.append(APPROVAL_REASONS['stable_employment'].format(tenure=employment_tenure))
         elif employment_type in ('Self-Employed', 'Business') and business_vintage >= 5:
             reasons.append(APPROVAL_REASONS['stable_employment'].format(tenure=int(business_vintage * 12)))
-
+ 
         if foir <= 40:
             reasons.append(APPROVAL_REASONS['low_foir'].format(foir=foir))
-
+ 
         if dpd_90 <= 1:
             reasons.append(APPROVAL_REASONS['clean_payment'])
-
+ 
         if income >= 75000:
             reasons.append(APPROVAL_REASONS['strong_income'].format(income=int(income)))
-
+ 
         if credit_util <= 30:
             reasons.append(APPROVAL_REASONS['low_utilization'].format(util=credit_util))
-
+ 
         if recent_inquiries <= 1:
             reasons.append(APPROVAL_REASONS['low_inquiries'].format(inq=recent_inquiries))
-
+ 
     # =========================================================================
     # REJECT
     # =========================================================================
@@ -367,7 +365,7 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
             reasons.append(REJECTION_REASONS['net_surplus_critical'].format(surplus=int(net_surplus)))
         if not reasons:
             reasons.append('Application rejected based on overall risk model assessment')
-
+ 
     # =========================================================================
     # REVIEW
     # =========================================================================
@@ -415,6 +413,6 @@ def generate_reason_codes(decision, customer_data, affordability_data, policy_ch
                 )
             else:
                 reasons.append(REVIEW_REASONS['mixed_signals'])
-
+ 
     return reasons[:3] if reasons else ['Decision based on comprehensive model assessment']
-
+ 
