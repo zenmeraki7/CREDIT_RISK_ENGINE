@@ -291,7 +291,7 @@
 
 
 
- 
+
 """
 Risk Engine
 Calculates Risk Score (0-100, higher = more risky), PD multipliers,
@@ -452,10 +452,13 @@ def calculate_final_risk_score(
     elif bureau_score < 700: risk += 10
     elif bureau_score < 750: risk += 5
  
-    # ML confidence penalty — low confidence = higher risk (0-15 pts)
-    if   ml_confidence < 50: risk += 15
-    elif ml_confidence < 65: risk += 10
-    elif ml_confidence < 75: risk += 5
+    # FIX 3: ML confidence penalty removed.
+    # It double-counted the bureau/DPD signal: a borderline bureau=630 already adds
+    # +15 to the risk score; the ML model is also uncertain about bureau=630 and would
+    # have added +10 more — penalising the same underlying feature twice.
+    # ml_confidence is still used downstream for display and PD adjustment, just not
+    # as an additive component of the rule-based risk score.
+    # (Removed: if ml_confidence < 50: risk += 15 / < 65: +10 / < 75: +5)
  
     # FOIR component (0-20 pts) — uses your original 50% cap
     if   foir > 70: risk += 20
@@ -503,8 +506,10 @@ def fill_missing_ml_fields(customer_dict: dict) -> None:
     BUG 4 FIX: hard_reject_flag removed — it is not in the 15 model features
     and setting it here is misleading dead weight.
     """
-    dpd_90 = customer_dict.get('dpd_90_count_6m', 0)
-    dpd_30 = customer_dict.get('dpd_30_count_6m', 0)
+    # FIX 1: round DPD counts — synthetic jitter produces floats like 0.9904 and 1.982.
+    # All downstream comparisons (> 0, > 5, * 10) require integer counts.
+    dpd_90 = int(round(float(customer_dict.get('dpd_90_count_6m', 0) or 0)))
+    dpd_30 = int(round(float(customer_dict.get('dpd_30_count_6m', 0) or 0)))
  
     # ── BUG 1 FIX: map form fields → model feature names ──────────────────
     # AMT_ANNUITY: use the pre-calculated new_emi if affordability has already
