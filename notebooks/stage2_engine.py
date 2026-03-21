@@ -740,6 +740,46 @@ def prepare_stage2_input(customer_data, stage2_features, feature_encoders):
     Map customer data to the exact features expected by the Stage 2 model.
     Handles numeric defaults and applies saved categorical encoders.
     """
+    # ── DATASET BRIDGE: Stage 1 → Stage 2 field name mapping ────────────────
+    # Stage 1 and Stage 2 were trained on COMPLETELY different datasets
+    # (synthetic bank-statement data vs Kaggle CIBIL bureau data) with ZERO
+    # shared column names. Where Stage 1 collected an equivalent value under
+    # a different name, we map it here before falling back to numeric defaults.
+    # Without this, Stage 2 always runs on hardcoded population-average defaults
+    # instead of the actual applicant's values.
+    s1 = customer_data  # alias for readability
+ 
+    # Credit_Score  ← bureau_score (same thing, different dataset column name)
+    if 'Credit_Score' not in s1 and 'bureau_score' in s1:
+        customer_data = dict(customer_data)
+        customer_data['Credit_Score'] = s1['bureau_score']
+ 
+    # AGE  ← age (Stage 1 uses lowercase 'age', CIBIL uses uppercase 'AGE')
+    if 'AGE' not in s1 and 'age' in s1:
+        customer_data['AGE'] = s1['age']
+ 
+    # NETMONTHLYINCOME  ← avg_salary_6m (monthly salary — same concept)
+    if 'NETMONTHLYINCOME' not in s1 and 'avg_salary_6m' in s1:
+        customer_data['NETMONTHLYINCOME'] = s1['avg_salary_6m']
+ 
+    # Time_With_Curr_Empr  ← employment_tenure_months
+    if 'Time_With_Curr_Empr' not in s1 and 'employment_tenure_months' in s1:
+        customer_data['Time_With_Curr_Empr'] = s1['employment_tenure_months']
+ 
+    # num_times_30p_dpd  ← dpd_30_count_6m (rounded — jitter fix)
+    if 'num_times_30p_dpd' not in s1 and 'dpd_30_count_6m' in s1:
+        customer_data['num_times_30p_dpd'] = int(round(float(s1.get('dpd_30_count_6m', 0) or 0)))
+ 
+    # num_times_60p_dpd  ← dpd_90_count_6m (60+DPD is closest CIBIL equivalent to 90+DPD)
+    if 'num_times_60p_dpd' not in s1 and 'dpd_90_count_6m' in s1:
+        customer_data['num_times_60p_dpd'] = int(round(float(s1.get('dpd_90_count_6m', 0) or 0)))
+ 
+    # enq_L3m  ← recent_inquiries_3m
+    if 'enq_L3m' not in s1 and 'recent_inquiries_3m' in s1:
+        customer_data['enq_L3m'] = s1['recent_inquiries_3m']
+ 
+    # ── end of bridge ────────────────────────────────────────────────────────
+ 
     mapping = {}
  
     # --- Numeric fields (direct copy or safe default) ---
