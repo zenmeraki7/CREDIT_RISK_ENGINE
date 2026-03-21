@@ -566,7 +566,7 @@
 
 
  
- 
+  
 """
 STAGE 2 CIBIL DEEP DIVE ENGINE
 Separate module for 2-stage credit risk system
@@ -1032,7 +1032,12 @@ def make_two_stage_decision(customer_data, stage1_function):
     # Stage 1 produces 0-100 (higher = riskier); Stage 2 tier scores are on 0-1000.
     # Convert Stage 1 to 0-1000 (multiply by 10) before blending so the weights
     # are meaningful. The result is labelled as a 0-1000 scale in the UI.
-    tier_score_map = {'P1': 100, 'P2': 300, 'P3': 650, 'P4': 900}  # FIX H1: P1=lowest risk=lowest score
+    # FIX 5: linearised tier score mapping.
+    # Old: P1=100, P2=300, P3=650, P4=900 — P2→P3 gap (350) was 75% larger than P1→P2 (200),
+    # making P3 disproportionately punishing. New mapping is evenly spaced at ~267pt steps:
+    # P1=100, P2=367, P3=633, P4=900 — rounded to P1=100, P2=350, P3=633, P4=900
+    # so that a P2 CIBIL profile is not unfairly dragged toward rejection.
+    tier_score_map = {'P1': 100, 'P2': 350, 'P3': 633, 'P4': 900}  # linearised gaps
     stage2_score_display = tier_score_map.get(stage2_tier, 500)
     stage1_risk_score_1000 = stage1_risk_score * 10  # normalise 0-100 → 0-1000
     combined_risk_score = int(0.4 * stage1_risk_score_1000 + 0.6 * stage2_score_display)
