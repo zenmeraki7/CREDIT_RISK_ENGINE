@@ -7797,6 +7797,12 @@
 
 
 
+
+
+
+
+
+
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -9075,6 +9081,7 @@ elif page == "👤 Assessment":
         if pdf_just_extracted:
             ex = st.session_state.get('_last_extraction', {})
             st.success("✅ CIBIL data extracted — form fields below have been updated automatically.")
+            st.info("⬇️ Scroll down — all form fields have been pre-filled from the PDF. Review and click **Assess Credit Risk**.")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Credit Score", ex.get('Credit_Score', '—'))
             c2.metric("Monthly Income", f"₹{ex.get('NETMONTHLYINCOME') or ex.get('avg_salary_6m', 0):,}")
@@ -9104,6 +9111,10 @@ elif page == "👤 Assessment":
                     st.info(f"📄 File ready: **{uploaded_pdf.name}** ({uploaded_pdf.size/1024:.1f} KB)")
                     if st.button("🔍 Extract & Auto-fill Form", key="extract_assessment", type="primary", use_container_width=True):
                         with st.spinner("🔄 Running OCR on CIBIL PDF — this takes 10-30 seconds..."):
+                            if uploaded_pdf is None:
+                                st.error("❌ File was lost — please re-upload the PDF and try again.")
+                                st.stop()
+                            uploaded_pdf.seek(0)
                             extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                         if extraction_result.get('success', False):
                             st.session_state.pdf_age               = int(extraction_result.get('AGE', 35))
@@ -9156,6 +9167,28 @@ elif page == "👤 Assessment":
                                 with st.expander("🔍 Error details"):
                                     st.code(extraction_result['traceback'])
 
+    # ── Seed session state defaults before form renders ──────────────────────
+    # This ensures every widget key has a value in st.session_state before
+    # the form renders. OCR sets these same keys, so widgets pick up OCR
+    # values automatically on rerun without needing value=/index= params.
+    _form_defaults = {
+        'pdf_age': 35, 'pdf_employment_type': 'Salaried', 'pdf_gender': 'Male',
+        'pdf_dependents': 2, 'pdf_kyc': True, 'pdf_bankruptcy': False,
+        'pdf_fraud': False, 'pdf_employment_tenure': 24, 'pdf_business_vintage': 3,
+        'pdf_bureau_score': 720, 'pdf_dpd_90': 0, 'pdf_dpd_30': 0,
+        'pdf_credit_util': 30, 'pdf_inquiries': 2, 'pdf_active_loans': 1,
+        'pdf_existing_emi': 15000, 'pdf_monthly_income': 50000,
+        'pdf_annual_income': 600000, 'pdf_net_surplus': 20000,
+        'pdf_salary_stability': 'STABLE', 'pdf_loan_amount': 180000,
+        'pdf_loan_tenure': 24, 'pdf_interest_rate': 10.5, 'pdf_amt_annuity': 8500,
+        'pdf_payment_discipline': 'GOOD', 'pdf_liquidity_flag': 'LOW',
+        'pdf_cashflow_health': 'MODERATE', 'pdf_bureau_risk_flag': 'LOW',
+        'pdf_inward_bounce': 0, 'pdf_salary_missing': 0,
+    }
+    for _k, _v in _form_defaults.items():
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
     with st.form("assessment_form"):
         # ── Identity & Eligibility ─────────────────────────────────────────
         st.markdown('<p class="section-header">👤 Identity & Eligibility</p>', unsafe_allow_html=True)
@@ -9164,26 +9197,24 @@ elif page == "👤 Assessment":
             customer_name = st.text_input("Customer Name (Optional)", value="", placeholder="e.g. Ramesh Kumar")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            age = st.number_input("Age", 25, 70, value=int(st.session_state.get('pdf_age', 35)), help="Min 25 per RBI lending policy")
+            age = st.number_input("Age", 25, 70, key='pdf_age', help="Min 25 per RBI lending policy")
             employment_type = st.selectbox("Employment Type", ['Salaried', 'Self-Employed', 'Business'],
-                index=['Salaried','Self-Employed','Business'].index(st.session_state.get('pdf_employment_type','Salaried')))
+                key='pdf_employment_type')
         with col2:
             _gender_opts = ['Male', 'Female', 'Non-binary / Other', 'Prefer not to say']
-            _gender_default = st.session_state.get('pdf_gender', 'Male')
-            _gender_idx = _gender_opts.index(_gender_default) if _gender_default in _gender_opts else 0
+            # selectbox doesn't support key= with arbitrary string values, so use index trick
+            # but re-seed index from session state each render
+            _gender_val = st.session_state.get('pdf_gender', 'Male')
+            _gender_idx = _gender_opts.index(_gender_val) if _gender_val in _gender_opts else 0
             gender = st.selectbox("Gender", _gender_opts, index=_gender_idx)
-            dependents = st.number_input("Number of Dependents", 0, 20, value=int(st.session_state.get('pdf_dependents', 2)))
+            dependents = st.number_input("Number of Dependents", 0, 20, key='pdf_dependents')
         with col3:
-            # City Tier — field for fairness monitoring.
-            # FIX A-6: Use format_func so the selectbox displays the full label to the user
-            # but city_tier is derived immediately from CITY_TIERS at render time —
-            # no deferred lookup needed. A caption confirms the stored code.
             _city_keys = list(CITY_TIERS.keys())
             city_tier_label = st.selectbox(
                 "City Tier", _city_keys, index=0,
-                format_func=lambda k: k  # full descriptive label shown to user
+                format_func=lambda k: k
             )
-            city_tier = CITY_TIERS[city_tier_label]   # short code: 'Tier 1' / 'Tier 2' / etc.
+            city_tier = CITY_TIERS[city_tier_label]
             st.caption(f"Stored as: **{city_tier}**")
             kyc_verified = st.selectbox("KYC Verified", ['Yes', 'No'],
                 index=0 if st.session_state.get('pdf_kyc', True) else 1) == 'Yes'
@@ -9216,11 +9247,11 @@ elif page == "👤 Assessment":
         with col1:
             if employment_type == 'Salaried':
                 employment_tenure = st.number_input("Employment Tenure (months)", 0, 600,
-                    value=int(st.session_state.get('pdf_employment_tenure', 24)))
+                    key='pdf_employment_tenure')
                 business_vintage = 0
             else:
                 business_vintage = st.number_input("Business Vintage (years)", 0, 50,
-                    value=int(st.session_state.get('pdf_business_vintage', 3)))
+                    key='pdf_business_vintage')
                 employment_tenure = 0
         with col2:
             st.markdown("""
@@ -9235,68 +9266,59 @@ elif page == "👤 Assessment":
         st.markdown('<p class="section-header">🏦 Credit Bureau</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
-            bureau_score = st.number_input("Bureau Score", 300, 900,
-                value=int(st.session_state.get('pdf_bureau_score', 720)), step=10)
-            dpd_90_6m = st.number_input("DPD 90+ (Last 6M)", 0, 20,
-                value=int(st.session_state.get('pdf_dpd_90', 0)))
-            dpd_30_6m = st.number_input("DPD 30+ (Last 6M)", 0, 20,
-                value=int(st.session_state.get('pdf_dpd_30', 0)))
+            bureau_score = st.number_input("Bureau Score", 300, 900, key='pdf_bureau_score', step=10)
+            dpd_90_6m    = st.number_input("DPD 90+ (Last 6M)", 0, 20, key='pdf_dpd_90')
+            dpd_30_6m    = st.number_input("DPD 30+ (Last 6M)", 0, 20, key='pdf_dpd_30')
         with col2:
-            credit_utilization = st.number_input("Credit Utilization (%)", 0, 100,
-                value=int(st.session_state.get('pdf_credit_util', 30)))
-            recent_inquiries = st.number_input("Recent Inquiries (3M)", 0, 20,
-                value=int(st.session_state.get('pdf_inquiries', 2)))
+            credit_utilization = st.number_input("Credit Utilization (%)", 0, 100, key='pdf_credit_util')
+            recent_inquiries   = st.number_input("Recent Inquiries (3M)", 0, 20, key='pdf_inquiries')
         with col3:
-            active_loans = st.number_input("Active Loans", 0, 10,
-                value=int(st.session_state.get('pdf_active_loans', 1)))
-            existing_emi = st.number_input("Existing Total EMI (₹)", 0, 200000,
-                value=int(st.session_state.get('pdf_existing_emi', 15000)), step=1000)
+            active_loans = st.number_input("Active Loans", 0, 10, key='pdf_active_loans')
+            existing_emi = st.number_input("Existing Total EMI (₹)", 0, 200000, key='pdf_existing_emi', step=1000)
 
         # Income & Financial
         st.markdown('<p class="section-header">💰 Income & Financial</p>', unsafe_allow_html=True)
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            avg_salary = st.number_input("Monthly Income (₹)", 0, 1000000,
-                value=int(st.session_state.get('pdf_monthly_income', 50000)), step=5000)
-            amt_income = st.number_input("Annual Income (₹)", 0, 10000000,
-                value=int(st.session_state.get('pdf_annual_income', 600000)), step=10000)
+            avg_salary = st.number_input("Monthly Income (₹)", 0, 1000000, key='pdf_monthly_income', step=5000)
+            amt_income = st.number_input("Annual Income (₹)", 0, 10000000, key='pdf_annual_income', step=10000)
         with col2:
-            net_surplus = st.number_input("Net Cash Surplus (₹)", -100000, 500000,
-                value=int(st.session_state.get('pdf_net_surplus', 20000)), step=5000)
+            net_surplus = st.number_input("Net Cash Surplus (₹)", -100000, 500000, key='pdf_net_surplus', step=5000)
             _ss_opts = ['STABLE', 'MODERATE', 'UNSTABLE']
+            _ss_val  = st.session_state.get('pdf_salary_stability', 'STABLE')
             salary_stability = st.selectbox("Salary Stability", _ss_opts,
-                index=_ss_opts.index(st.session_state.get('pdf_salary_stability', 'STABLE')))
+                index=(_ss_opts.index(_ss_val) if _ss_val in _ss_opts else 0))
         with col3:
-            loan_amount = st.number_input("Loan Amount (₹)", 0, 5000000,
-                value=int(st.session_state.get('pdf_loan_amount', 180000)), step=10000)
-            loan_tenure = st.number_input("Tenure (months)", 3, 360,
-                value=int(st.session_state.get('pdf_loan_tenure', 24)))
+            loan_amount  = st.number_input("Loan Amount (₹)", 0, 5000000, key='pdf_loan_amount', step=10000)
+            loan_tenure  = st.number_input("Tenure (months)", 3, 360, key='pdf_loan_tenure')
         with col4:
-            interest_rate = st.number_input("Interest Rate (%)", 8.0, 20.0,
-                value=float(st.session_state.get('pdf_interest_rate', 10.5)), step=0.5)
-            amt_annuity = st.number_input("Requested EMI (₹)", 0, 200000,
-                value=int(st.session_state.get('pdf_amt_annuity', 8500)), step=500)
+            interest_rate = st.number_input("Interest Rate (%)", 8.0, 20.0, key='pdf_interest_rate', step=0.5)
+            amt_annuity   = st.number_input("Requested EMI (₹)", 0, 200000, key='pdf_amt_annuity', step=500)
 
         # Additional Credit Behaviour
         st.markdown('<p class="section-header">📋 Additional Credit Behaviour</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
             _pd_opts = ['GOOD', 'MODERATE', 'POOR']
+            _pd_val  = st.session_state.get('pdf_payment_discipline', 'GOOD')
             payment_discipline = st.selectbox("Payment Discipline", _pd_opts,
-                index=_pd_opts.index(st.session_state.get('pdf_payment_discipline', 'GOOD')))
+                index=(_pd_opts.index(_pd_val) if _pd_val in _pd_opts else 0))
             _lq_opts = ['LOW', 'ADEQUATE', 'MODERATE']
+            _lq_val  = st.session_state.get('pdf_liquidity_flag', 'LOW')
             liquidity_flag = st.selectbox("Liquidity", _lq_opts,
-                index=_lq_opts.index(st.session_state.get('pdf_liquidity_flag', 'LOW')))
+                index=(_lq_opts.index(_lq_val) if _lq_val in _lq_opts else 0))
         with col2:
             _cf_opts = ['MODERATE', 'HEALTHY', 'STRESSED', 'STABLE']
+            _cf_val  = st.session_state.get('pdf_cashflow_health', 'MODERATE')
             cashflow_health = st.selectbox("Cashflow Health", _cf_opts,
-                index=_cf_opts.index(st.session_state.get('pdf_cashflow_health', 'MODERATE')))
+                index=(_cf_opts.index(_cf_val) if _cf_val in _cf_opts else 0))
             _br_opts = ['LOW', 'MEDIUM', 'HIGH']
+            _br_val  = st.session_state.get('pdf_bureau_risk_flag', 'LOW')
             bureau_risk_flag = st.selectbox("Bureau Risk", _br_opts,
-                index=_br_opts.index(st.session_state.get('pdf_bureau_risk_flag', 'LOW')))
+                index=(_br_opts.index(_br_val) if _br_val in _br_opts else 0))
         with col3:
-            inward_bounce_count   = st.number_input("Inward Bounce Count (3M)", 0, 10, value=int(st.session_state.get('pdf_inward_bounce', 0)))
-            salary_missing_months = st.number_input("Missing Salary Months (6M)", 0, 6, value=int(st.session_state.get('pdf_salary_missing', 0)))
+            inward_bounce_count   = st.number_input("Inward Bounce Count (3M)", 0, 10, key='pdf_inward_bounce')
+            salary_missing_months = st.number_input("Missing Salary Months (6M)", 0, 6, key='pdf_salary_missing')
 
         st.markdown("<br>", unsafe_allow_html=True)
         submitted = st.form_submit_button("🔍 Assess Credit Risk", use_container_width=True)
@@ -9354,9 +9376,12 @@ elif page == "👤 Assessment":
         st.session_state.stage1_data = decision_data
         st.session_state.current_customer_data = customer_data
 
-        for key in list(st.session_state.keys()):
-            if key.startswith('pdf_') or key in ('_last_extraction', '_last_inferred_flags'):
-                del st.session_state[key]
+        # Only clear the "just extracted" flag — keep pdf_* values intact so
+        # the user can re-submit or navigate back without losing OCR data.
+        # Values are cleared when a new PDF is uploaded (reset_pdf button).
+        st.session_state.pdf_just_extracted = False
+        st.session_state.pop('_last_extraction', None)
+        st.session_state.pop('_last_inferred_flags', None)
 
         tab1, tab2, tab3, tab4 = st.tabs(["📋 Application", "📊 Decision", "🔍 Analysis", "📝 Audit"])
 
