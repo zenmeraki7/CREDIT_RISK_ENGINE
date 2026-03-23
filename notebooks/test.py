@@ -7797,7 +7797,6 @@
 
 
 
-
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -9549,7 +9548,7 @@ elif page == "🔬 Stage 2 Analysis":
     stage1_data = st.session_state.get('stage1_data', {})
     stage1_customer = st.session_state.get('current_customer_data', {})
 
-    st.markdown(f'<div class="info-box" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:white;"><h3 style="margin:0;color:white;">📊 Stage 1 Results</h3><p style="margin:0.5rem 0 0 0;"><strong>Decision:</strong> {st.session_state.get("stage1_decision","N/A")} | <strong>Risk Score:</strong> {stage1_data.get("risk_score","N/A")} | <strong>App ID:</strong> {stage1_customer.get("application_id","N/A")}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="info-box" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:white;"><h3 style="margin:0;color:white;">📊 Stage 1 Results</h3><p style="margin:0.5rem 0 0 0;"><strong>Decision:</strong> {st.session_state.get("stage1_decision","N/A")} | <strong>Risk Score:</strong> {stage1_data.get("risk_score","N/A")}<span style="font-size:0.8em;opacity:0.8">/100</span> | <strong>App ID:</strong> {stage1_customer.get("application_id","N/A")}</p><p style="margin:0.25rem 0 0 0;font-size:0.8em;opacity:0.8;">⚠ Stage 1 score is out of 100. Stage 2 combined score is out of 1000 — different scales, do not compare directly.</p></div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
     tab_options = ["Manual Entry", "PDF Upload", "Batch Analysis"]
