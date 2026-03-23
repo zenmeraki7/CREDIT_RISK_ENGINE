@@ -563,7 +563,7 @@
 
 
 
-  
+    
 """
 STAGE 2 CIBIL DEEP DIVE ENGINE
 Separate module for 2-stage credit risk system
@@ -1252,4 +1252,3 @@ if __name__ == "__main__":  # M4 FIX: was != (backwards), fired on every import 
         print(f"   Accuracy: {status['accuracy']}")
         print(f"   Features: {status['features']}")
         print(f"   Path: {status['path']}")
- 
