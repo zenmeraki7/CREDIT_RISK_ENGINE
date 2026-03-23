@@ -1017,7 +1017,6 @@
 
 
 
-
 r"""
 ocr_extractor.py  —  CIBIL PDF Extraction Engine  v4.0
 =======================================================
@@ -1517,83 +1516,167 @@ def _parse_accounts(txt):
     """
     Parse account table → DPD counts.
  
-    Key fix (BUG 2): DPD value is the LAST standalone 3-digit code per line.
-    Old code used re.search which matched the FIRST 3-digit code — picking
-    '000' from the balance '45,000' instead of the DPD column '030'.
-    New code: findall with negative lookbehind/ahead, take last match.
+    Handles TWO layouts:
+      A) Scanned/OCR PDF — all cells on ONE line per account:
+         "Muthoot Finance  Personal Loan  Feb-2023  Rs.100,000  Active  090"
+         → parse line-by-line, take last 3-digit code as DPD
  
-    Key fix (BUG 3): strip OCR noise from DPD: '0)' → '0'.
-    Key fix (BUG 7): text DPD codes (NIL, SMA, SUB, DBT, LSS) handled.
+      B) Digital PDF (pdfminer) — each cell on its OWN line:
+         "Muthoot Finance\\nPersonal Loan\\nFeb-2023\\nRs.100,000\\nActive\\n090"
+         → collect lenders, statuses, DPD codes in order, then zip them
+ 
+    FIX BUG 3 (this session): Digital PDFs caused mismatched status/DPD because
+    "Active" and "090" were parsed as separate 1-cell rows with dpd=0 and
+    status='active' respectively — producing 3 rows per account instead of 1.
     """
+    # Isolate account section
+    idx_s = -1
+    idx_e = len(txt)
+    for m in re.finditer(r'ACCOUNT\s+DETAILS?|LOAN\s+DETAILS?|CREDIT\s+FACILITIES', txt, re.IGNORECASE):
+        idx_s = m.end(); break
+    for m in re.finditer(r'ENQUIRY\s+DETAILS?|SCORE\s+FACTORS', txt, re.IGNORECASE):
+        if m.start() > idx_s:
+            idx_e = m.start(); break
+    if idx_s < 0:
+        section = txt
+    else:
+        section = txt[idx_s:idx_e]
+ 
+    lines = [l.strip() for l in section.split('\n') if l.strip()]
+ 
+    # ── STRATEGY DETECTION ──────────────────────────────────────────────────
+    # Detect digital PDF layout: are lender names and DPD codes on separate lines?
+    lender_lines_all = [l for l in lines if re.search(
+        r'\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b|\bLtd\b|\bSBI\b|\bBajaj\b|\bTata\b|\bMuthoot\b',
+        l, re.IGNORECASE)]
+    dpd_only_lines = [l for l in lines if re.fullmatch(r'\d{3}', l)]
+    status_only_lines = [l for l in lines if re.fullmatch(
+        r'Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss|Sub[-\s]?Standard|Standard',
+        l, re.IGNORECASE)]
+ 
+    # Use digital strategy if we have lenders + standalone DPD codes
+    use_digital = (len(lender_lines_all) >= 1 and
+                   len(dpd_only_lines) >= 1 and
+                   len(dpd_only_lines) >= len(lender_lines_all) - 1)
+ 
     accounts = []
-    in_section = False
-    seen_keys = set()
  
-    for line in txt.split('\n'):
-        lu = line.upper()
-        if re.search(r'ACCOUNT\s+DETAILS?|LOAN\s+DETAILS?|CREDIT\s+FACILITIES', lu):
-            in_section = True; continue
-        if re.search(r'ENQUIRY\s+DETAILS?|SUMMARY|PERSONAL\s+INFO|SCORE\s+FACTORS', lu):
-            in_section = False; continue
-        if not in_section or not line.strip():
-            continue
+    if use_digital:
+        # ── DIGITAL PDF: zip lenders, statuses, DPD codes in document order ──
+        # All three lists appear in the same row-order in the PDF column layout
+        n = min(len(lender_lines_all), len(dpd_only_lines))
+        for i in range(n):
+            dpd_val = _parse_dpd_value(dpd_only_lines[i])
+            if i < len(status_only_lines):
+                raw_s = status_only_lines[i].lower().replace(' ', '_').replace('-', '_')
+            else:
+                raw_s = 'active'
+            # Detect product from lender line
+            prod_label = None
+            for pat, label in {
+                r'credit\s+card': 'CC', r'personal\s+loan': 'PL',
+                r'home\s+loan|housing': 'HL', r'auto\s+loan|car\s+loan': 'AL',
+                r'gold\s+loan': 'GL', r'business\s+loan': 'BL',
+            }.items():
+                if re.search(pat, lender_lines_all[i], re.IGNORECASE):
+                    prod_label = label; break
+            accounts.append({'dpd': dpd_val, 'status': raw_s,
+                             'product': prod_label or 'others'})
  
-        stat_m = re.search(
-            r'\b(Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss|'
-            r'Sub[-\s]?Standard|Standard|Special\s+Mention|SMA|SUB|DBT|LSS)\b',
-            line, re.IGNORECASE)
- 
-        # FIX BUG 2: standalone 3-digit codes only (not inside comma-numbers)
-        # Negative lookbehind: not preceded by comma or digit
-        # Negative lookahead: not followed by comma or digit
-        # Take the LAST match per line (DPD is rightmost column)
-        standalone_codes = re.findall(
-            r'(?<![,\d])(\d{3})(?![,\d])', line)
-        # Also catch text codes at end of line
-        text_dpd_m = re.search(
-            r'\b(NIL|NA|N/A|XXX|STD|SMA|SUB|DBT|LSS|NPA|WO)\s*$',
-            line.strip(), re.IGNORECASE)
- 
-        prod_label = None
-        for pat, label in {
-            r'credit\s+card|CC': 'CC',
-            r'personal\s+loan|PL': 'PL',
-            r'home\s+loan|HL|housing': 'HL',
-            r'auto\s+loan|car\s+loan|AL': 'AL',
-            r'gold\s+loan|GL': 'GL',
-            r'business\s+loan|BL': 'BL',
-        }.items():
-            if re.search(pat, line, re.IGNORECASE):
-                prod_label = label; break
- 
-        is_account_row = (
-            stat_m or standalone_codes or text_dpd_m or
-            re.search(r'\bINR\b|\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b|\bLtd\b',
-                      line, re.IGNORECASE))
-        if not is_account_row:
-            continue
- 
-        # Determine DPD value
-        if text_dpd_m:
-            dpd_val = _parse_dpd_value(text_dpd_m.group(1))
-        elif standalone_codes:
-            # Take last standalone 3-digit code (DPD is rightmost column)
-            raw_dpd = standalone_codes[-1]
-            dpd_val = _parse_dpd_value(raw_dpd)
-        else:
+        # If we found more statuses than DPD codes (some accounts have text DPD)
+        # handle text-code statuses (NPA, Written-Off) as both status and DPD
+        for i in range(n, len(lender_lines_all)):
+            # No DPD code found — check if status implies DPD
+            raw_s = status_only_lines[i].lower().replace(' ', '_').replace('-', '_') if i < len(status_only_lines) else 'active'
             dpd_val = 0
+            if 'npa' in raw_s or 'written' in raw_s or 'loss' in raw_s:
+                dpd_val = 90  # conservative default for NPA/Written-Off
+            accounts.append({'dpd': dpd_val, 'status': raw_s, 'product': 'others'})
  
-        status = (stat_m.group(1).lower().replace(' ', '_').replace('-', '_')
-                  if stat_m else 'active')
+        # Also handle text-DPD codes that appeared inline (e.g. SMA, SUB at end)
+        text_dpd_lines = [l for l in lines if re.fullmatch(
+            r'NIL|NA|N/A|XXX|STD|SMA|SUB|DBT|LSS|NPA|WO', l.strip(), re.IGNORECASE)]
+        # (already handled via status_only_lines for NPA; others are rare in digital)
  
-        # De-duplicate CC sub-accounts
-        dedup_key = (prod_label, dpd_val, status)
-        if dedup_key in seen_keys and prod_label == 'CC':
-            continue
-        seen_keys.add(dedup_key)
+    else:
+        # ── SCANNED/OCR PDF: original line-by-line parser ────────────────────
+        seen_keys = set()
+        for line in section.split('\n'):
+            if not line.strip():
+                continue
+            stat_m = re.search(
+                r'\b(Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss|'
+                r'Sub[-\s]?Standard|Standard|Special\s+Mention|SMA|SUB|DBT|LSS)\b',
+                line, re.IGNORECASE)
+            standalone_codes = re.findall(r'(?<![,\d])(\d{3})(?![,\d])', line)
+            text_dpd_m = re.search(
+                r'\b(NIL|NA|N/A|XXX|STD|SMA|SUB|DBT|LSS|NPA|WO)\s*$',
+                line.strip(), re.IGNORECASE)
+            prod_label = None
+            for pat, label in {
+                r'credit\s+card|CC': 'CC', r'personal\s+loan|PL': 'PL',
+                r'home\s+loan|HL|housing': 'HL', r'auto\s+loan|car\s+loan|AL': 'AL',
+                r'gold\s+loan|GL': 'GL', r'business\s+loan|BL': 'BL',
+            }.items():
+                if re.search(pat, line, re.IGNORECASE):
+                    prod_label = label; break
+            is_account_row = (
+                stat_m or standalone_codes or text_dpd_m or
+                re.search(r'\bINR\b|\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b|\bLtd\b',
+                          line, re.IGNORECASE))
+            if not is_account_row:
+                continue
+            if text_dpd_m:
+                dpd_val = _parse_dpd_value(text_dpd_m.group(1))
+            elif standalone_codes:
+                dpd_val = _parse_dpd_value(standalone_codes[-1])
+            else:
+                dpd_val = 0
+            status = (stat_m.group(1).lower().replace(' ', '_').replace('-', '_')
+                      if stat_m else 'active')
+            dedup_key = (prod_label, dpd_val, status)
+            if dedup_key in seen_keys and prod_label == 'CC':
+                continue
+            seen_keys.add(dedup_key)
+            accounts.append({'dpd': dpd_val, 'status': status,
+                             'product': prod_label or 'others'})
  
-        accounts.append({'dpd': dpd_val, 'status': status,
-                         'product': prod_label or 'others'})
+    # ── AGGREGATE ────────────────────────────────────────────────────────────
+    dpd_90 = dpd_60 = dpd_30 = 0
+    written_off = settled = active = sub_std = 0
+ 
+    if accounts:
+        for acc in accounts:
+            d, s = acc['dpd'], acc['status']
+            if d >= 90:   dpd_90 += 1
+            elif d >= 60: dpd_60 += 1
+            elif d >= 30: dpd_30 += 1
+            if any(x in s for x in ('written', 'npa', 'loss', 'lss', 'wo')):
+                written_off += 1
+            elif 'settled' in s:
+                settled += 1
+            elif any(x in s for x in ('active', 'standard', 'std')):
+                active += 1
+            if d >= 30 or any(x in s for x in ('sub', 'doubtful', 'dbt', 'npa', 'sma')):
+                sub_std += 1
+    else:
+        # Fallback keyword scan
+        written_off = len(re.findall(r'\bwritten[-\s]?off\b|\bNPA\b', txt, re.IGNORECASE))
+        settled     = len(re.findall(r'\bsettled\b', txt, re.IGNORECASE))
+        dpd_90      = len(re.findall(r'\b090\b|\b120\b|\b150\b|\b180\b|90\+?\s*dpd', txt, re.IGNORECASE))
+        dpd_60      = len(re.findall(r'\b060\b|60\+?\s*dpd', txt, re.IGNORECASE))
+        dpd_30      = len(re.findall(r'\b030\b|30\+?\s*dpd', txt, re.IGNORECASE))
+        active      = min(len(re.findall(r'\bactive\b', txt, re.IGNORECASE)), 15)
+ 
+    total_accounts = max(len(accounts), active + settled + written_off, 1)
+    return dict(
+        accounts=accounts,
+        dpd_90_count=dpd_90, dpd_60_count=dpd_60, dpd_30_count=dpd_30,
+        written_off_count=written_off, settled_count=settled,
+        active_count=active, sub_std=sub_std,
+        total_accounts=total_accounts,
+        pct_active=active / total_accounts,
+    )
  
     # Aggregate
     dpd_90 = dpd_60 = dpd_30 = 0
@@ -1732,23 +1815,56 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         credit_score = _extract_credit_score(txt)
  
         # 3. Age / DOB
+        # Two strategies to handle digital PDFs where pdfminer splits table cells:
+        #   "22-Mar-1982" → "22-Mar-198\n\nGender\n\nMale\n\n2"
+        # Strategy 1: complete DOB present (scanned PDFs, clean digital PDFs)
+        # Strategy 2: partial DOB + lone completing digit nearby (split digital PDFs)
         age_extracted = 35
-        for dob_pat in [
-            r'(?:date\s+of\s+birth|dob|d\.o\.b)[\s:\-]+(\d{2}[-/]\w{3,9}[-/]\d{2,4})',
+        # Strategy 1 — complete date on one or two lines
+        for pat in [
+            r'(?:date\s+of\s+birth|dob|d\.o\.b)[\s:\-\n]+(\d{2}[-/][A-Za-z]{3}[-/]\d{4})',
             r'(?:date\s+of\s+birth|dob)[\s:\-]+(\d{2}[-/]\d{2}[-/]\d{4})',
-            r'born[\s:]+(\d{2}[-/]\w{3,9}[-/]\d{4})',
+            r'born[\s:]+(\d{2}[-/][A-Za-z]{3}[-/]\d{4})',
+            r'\b(\d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4})\b',
         ]:
-            m = re.search(dob_pat, txt, re.IGNORECASE)
+            m = re.search(pat, txt, re.IGNORECASE)
             if m:
                 for fmt in ('%d-%b-%Y', '%d/%b/%Y', '%d-%b-%y',
                             '%d-%m-%Y', '%d/%m/%Y'):
                     try:
                         dob = datetime.strptime(m.group(1), fmt)
-                        age_extracted = int((datetime.now() - dob).days / 365.25)
-                        break
+                        candidate = int((datetime.now() - dob).days / 365.25)
+                        if 18 <= candidate <= 80:
+                            age_extracted = candidate
+                            break
                     except Exception:
                         continue
-                if age_extracted != 35: break
+                if age_extracted != 35:
+                    break
+ 
+        # Strategy 2 — partial DOB (year split across columns in digital PDF)
+        if age_extracted == 35:
+            m_partial = re.search(
+                r'(?:date\s+of\s+birth|dob)[\s\S]{0,20}?(\d{2}-[A-Za-z]{3}-\d{3})',
+                txt, re.IGNORECASE)
+            if m_partial:
+                partial   = m_partial.group(1)      # e.g. "22-Mar-198"
+                after_pos = m_partial.end()
+                # Find the lone digit within 200 chars that completes the year
+                m_digit = re.search(r'(?<!\d)(\d)(?!\d)',
+                                    txt[after_pos:after_pos + 200])
+                if m_digit:
+                    year_int = int(partial[-3:] + m_digit.group(1))
+                    if 1940 <= year_int <= 2010:   # adult applicant range
+                        try:
+                            dob = datetime.strptime(partial + m_digit.group(1), '%d-%b-%Y')
+                            candidate = int((datetime.now() - dob).days / 365.25)
+                            if 18 <= candidate <= 80:
+                                age_extracted = candidate
+                        except Exception:
+                            pass
+ 
+        # Strategy 3 — explicit "Age: NN" text
         if age_extracted == 35:
             age_extracted = _re_int(r'(?:^|\s)age[\s:\-]+(\d{2})\b',
                                     txt, 35, lo=18, hi=80)
