@@ -1010,11 +1010,19 @@
 #             'success': False,
 #         }
 
+
+
+
+
+
+
+
+
 r"""
 ocr_extractor.py  —  CIBIL PDF Extraction Engine  v4.0
 =======================================================
 Production-grade OCR extraction from CIBIL / Bureau PDF reports.
-
+ 
 Root causes fixed vs v3.0
 --------------------------
 BUG 1 — Score in coloured box missed
@@ -1022,7 +1030,7 @@ BUG 1 — Score in coloured box missed
   image region and never reads the number inside it.
   Fix: multi-pass OCR — PSM 6 + PSM 11 (sparse text). PSM 11 picks up
   isolated numbers in coloured boxes. Merge both texts before parsing.
-
+ 
 BUG 2 — DPD matched from balance, not from DPD column
   Line: "Credit Card ICICI 45,000 030"
   Old regex r'\b(0\d0|\d{3})\b' matches "000" from "45,000" first.
@@ -1030,25 +1038,25 @@ BUG 2 — DPD matched from balance, not from DPD column
   Fix: use negative lookbehind/ahead (?<![,\d])(\d{3})(?![,\d]) to
   match only standalone 3-digit codes, then take the LAST one per line
   (DPD is always the rightmost column).
-
+ 
 BUG 3 — OCR noise in numbers: "0)" → should be "0"
   Fix: strip all non-digit characters from DPD values before parsing.
-
+ 
 BUG 4 — Words merged without spaces: "PersonalLoan", "CREDITINFORMATIONREPORT"
   Fix: camelCase split + known-header normalization before section detection.
-
+ 
 BUG 5 — Income in lakhs not handled: "Rs. 7.80 L p.m."
   Fix: lakhs/annual income patterns with divisor conversion.
-
+ 
 BUG 6 — Co-applicant income bleeding into primary
   Fix: isolate PRIMARY APPLICANT section before income extraction.
-
+ 
 BUG 7 — DPD text codes (NIL, SMA, SUB, DBT, LSS) not handled
   Fix: _DPD_TEXT_MAP converts text codes to integer days.
-
+ 
 BUG 8 — Score with spaces between digits: "7 4 2"
   Fix: collapse spaced digits before parsing.
-
+ 
 Retained from v3.0
 ------------------
 - Multi-pass deskew + adaptive threshold + CLAHE contrast
@@ -1057,11 +1065,11 @@ Retained from v3.0
 - recent_deliq_flag from actual DPD counts (FIX S-2)
 - surplus_for_return always initialised (FIX L2)
 """
-
+ 
 import re
 from datetime import datetime
 from typing import Optional
-
+ 
 try:
     import cv2
     import numpy as np
@@ -1072,12 +1080,12 @@ try:
 except ImportError as _e:
     OCR_AVAILABLE = False
     OCR_ERROR_MSG = str(_e)
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
-
+ 
 def _re_int(pattern, text, default, lo=None, hi=None):
     m = re.search(pattern, text, re.IGNORECASE)
     if m:
@@ -1089,8 +1097,8 @@ def _re_int(pattern, text, default, lo=None, hi=None):
         except Exception:
             pass
     return default
-
-
+ 
+ 
 def _re_float(pattern, text, default, lo=None, hi=None):
     m = re.search(pattern, text, re.IGNORECASE)
     if m:
@@ -1102,13 +1110,13 @@ def _re_float(pattern, text, default, lo=None, hi=None):
         except Exception:
             pass
     return default
-
-
+ 
+ 
 def _fix_spaced_digits(text):
     """Collapse OCR-spaced score digits: '7 4 2' → '742'."""
     return re.sub(r'\b(\d)\s(\d)\s(\d)\b', r'\1\2\3', text)
-
-
+ 
+ 
 def _split_merged_words(text):
     """
     Fix common OCR word-merge issues:
@@ -1128,8 +1136,8 @@ def _split_merged_words(text):
     for merged, spaced in replacements.items():
         text = re.sub(merged, spaced, text, flags=re.IGNORECASE)
     return text
-
-
+ 
+ 
 def _clean_ocr_noise(text):
     """Remove common OCR symbol injections near numbers."""
     # Remove stray ) ] } near digits
@@ -1138,25 +1146,43 @@ def _clean_ocr_noise(text):
     # § near letters
     text = re.sub(r'§', '', text)
     return text
-
-
-def _infer_surplus_from_cibil(score, dpd_60, dpd_30, income):
+ 
+ 
+def _infer_surplus_from_cibil(score, dpd_60, dpd_30, income, dpd_90=0):
+    """
+    Estimate net cash surplus from bureau signals.
+ 
+    FIX: Added dpd_90 parameter. Previous code only checked dpd_60 (60-89 day
+    bucket). PDFs where all late accounts have DPD >=90 (e.g. 090, 120) produce
+    dpd_60=0 and dpd_30=0, causing the function to return base=+15k for a
+    score-300 borrower with 10 written-off accounts → HEALTHY (wrong).
+ 
+    Also fixed: score < 650 alone now gives negative surplus (it didn't before).
+    """
     base = income * 0.30
-    if score >= 750 and dpd_60 == 0 and dpd_30 == 0: return base * 1.5
-    if score >= 700:                                   return base * 1.1
-    if dpd_60 >= 1:                                    return base * 0.2
-    if dpd_30 >= 2:                                    return base * 0.5
+    if score >= 750 and dpd_90 == 0 and dpd_60 == 0 and dpd_30 == 0:
+        return base * 1.5
+    if score >= 700 and dpd_90 == 0:
+        return base * 1.1
+    if dpd_90 >= 1:           # severe delinquency (90+ days) → negative
+        return base * -0.5
+    if dpd_60 >= 1:           # moderate delinquency (60-89 days)
+        return base * 0.2
+    if score < 650:           # poor bureau score alone → negative
+        return base * -0.2
+    if dpd_30 >= 2:
+        return base * 0.5
     return base
-
-
+ 
+ 
 # DPD text code → days
 _DPD_TEXT_MAP = {
     'NIL': 0, 'NA': 0, 'N/A': 0, 'XXX': 0, '-': 0, 'NONE': 0,
     'STD': 0, 'SMA': 30, 'SUB': 90, 'DBT': 180,
     'LSS': 365, 'NPA': 90, 'WO': 365,
 }
-
-
+ 
+ 
 def _parse_dpd_value(raw):
     """
     Convert any DPD representation to integer days.
@@ -1172,24 +1198,24 @@ def _parse_dpd_value(raw):
         return int(clean) if clean else 0
     except Exception:
         return 0
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # OCR PRE-PROCESSING
 # ---------------------------------------------------------------------------
-
+ 
 def _preprocess_page(pil_image, dpi=300):
     """PIL → cleaned binary array. CLAHE → deskew → adaptive threshold → close."""
     img  = np.array(pil_image)
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) if img.ndim == 3 else img
-
+ 
     # CLAHE contrast enhancement
     try:
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         gray  = clahe.apply(gray)
     except Exception:
         pass
-
+ 
     # Deskew ±20°
     try:
         coords = np.column_stack(np.where(gray < 200))
@@ -1204,15 +1230,15 @@ def _preprocess_page(pil_image, dpi=300):
                                       borderMode=cv2.BORDER_REPLICATE)
     except Exception:
         pass
-
+ 
     binary = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY, blockSize=31, C=10)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 1))
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     return binary
-
-
+ 
+ 
 def _ocr_page_multipass(pil_image, dpi=300):
     """
     Multi-pass OCR: PSM 6 (uniform block) + PSM 11 (sparse text).
@@ -1220,7 +1246,7 @@ def _ocr_page_multipass(pil_image, dpi=300):
     Returns merged text + average confidence.
     """
     binary = _preprocess_page(pil_image, dpi)
-
+ 
     # PSM 6 — standard full-page layout
     cfg6  = '--oem 3 --psm 6 -l eng'
     data6 = pytesseract.image_to_data(binary, config=cfg6,
@@ -1228,20 +1254,20 @@ def _ocr_page_multipass(pil_image, dpi=300):
     text6 = pytesseract.image_to_string(binary, config=cfg6)
     confs = [c for c in data6['conf'] if c != -1]
     avg_conf = (sum(confs) / len(confs)) if confs else 0.0
-
+ 
     # PSM 11 — sparse text (catches isolated numbers in boxes/headers)
     cfg11  = '--oem 3 --psm 11 -l eng'
     text11 = pytesseract.image_to_string(binary, config=cfg11)
-
+ 
     # Merge: use PSM 6 as base, append PSM 11 lines not already present
     lines6  = set(l.strip() for l in text6.splitlines() if l.strip())
     extra   = [l for l in text11.splitlines()
                if l.strip() and l.strip() not in lines6]
     merged  = text6 + '\n' + '\n'.join(extra)
-
+ 
     return merged, avg_conf
-
-
+ 
+ 
 def _ocr_pdf(pdf_bytes, low_conf_threshold=60.0):
     """PDF bytes → full merged text. Low-confidence pages re-run at 450 DPI."""
     full_text = ""
@@ -1258,26 +1284,32 @@ def _ocr_pdf(pdf_bytes, low_conf_threshold=60.0):
             except Exception:
                 pass
         full_text += text + "\n"
-
+ 
     # Post-process: clean noise + split merged words
     full_text = _clean_ocr_noise(full_text)
     full_text = _split_merged_words(full_text)
     full_text = _fix_spaced_digits(full_text)
     return full_text
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # CREDIT SCORE EXTRACTION
 # ---------------------------------------------------------------------------
-
+ 
 def _extract_credit_score(txt):
     """
     Extract bureau credit score (300-900).
     Strategy:
       1. Isolate PRIMARY APPLICANT section
-      2. Try explicit label patterns
-      3. Fallback: scan all standalone 3-digit numbers, pick one near 'score'
+      2. Try explicit label patterns (most reliable)
+      3. Fallback: scan standalone 3-digit numbers, pick closest to 'score' keyword
       4. NH/NTC → 650
+ 
+    FIX: Pattern 5 (generic score/rating + 3-digit) was matching
+    "Score range 300-549" and returning 300. Fixed by:
+      a) Excluding "score range NNN" from matches (it's a label not a value)
+      b) In fallback, picking the candidate CLOSEST to a score keyword
+         rather than the first one found.
     """
     # Isolate primary section if multi-applicant
     primary = txt
@@ -1286,45 +1318,68 @@ def _extract_credit_score(txt):
         txt, re.IGNORECASE | re.DOTALL)
     if m:
         primary = m.group(1)
-
+ 
+    # Pre-process: blank out "score range NNN-NNN" so it can't be matched
+    # as an actual score value (it's a description of the score range, not the score)
+    def _mask_range(t):
+        return re.sub(
+            r'score\s+range\s+\d{3}\s*[-–]\s*\d{3}[^.]*', '', t, flags=re.IGNORECASE)
+ 
     patterns = [
+        # Explicit label with colon/dash/paren (most reliable)
         r'(?:cibil|experian|equifax|highmark|crif|bureau)\s*'
         r'(?:trans\s*union\s*)?score\s*[:\-\(]?\s*(\d{3})',
+        # "Credit Score: 490"
         r'(?:credit\s+)?score\s*[:\-]\s*(\d{3})',
+        # Score followed immediately by rating band on same or next line
         r'\b(8[0-9]{2}|7[0-9]{2}|6[0-9]{2}|[3-5][0-9]{2})\s*'
         r'(?:EXCELLENT|VERY\s*GOOD|GOOD|FAIR|SUBPRIME|POOR)\b',
         r'\b(\d{3})\s+out\s+of\s+900\b',
         r'(?:your\s+score\s+is|score\s+is)\s+(\d{3})',
-        r'(?:score|rating)\s*[^\n\r]{0,30}?(\d{3})',
+        # FIX: negative lookahead to exclude "score range" matches
+        r'(?:score|rating)\s*(?!range)[^\n\r]{0,30}?(\d{3})',
     ]
     for section in (primary, txt):
+        masked = _mask_range(section)
         for pat in patterns:
-            m2 = re.search(pat, section, re.IGNORECASE)
+            m2 = re.search(pat, masked, re.IGNORECASE)
             if m2:
                 v = int(m2.group(1))
                 if 300 <= v <= 900:
                     return v
-
-    # Fallback: find all standalone 3-digit numbers in valid score range
-    # "standalone" = not part of a larger number or comma-number like 45,000
-    candidates = [int(x) for x in re.findall(
-        r'(?<![,\d])(\d{3})(?![,\d])', txt)
-        if 300 <= int(x) <= 900]
-    if candidates:
-        return candidates[0]
-
+ 
+    # Fallback: find all standalone 3-digit numbers in valid score range,
+    # then pick the one NEAREST to a score-related keyword.
+    # This prevents "Score range 300-549" from returning 300.
+    masked_full = _mask_range(txt)
+    candidates_pos = [(int(x), m.start()) for m in re.finditer(
+        r'(?<![,\d])(\d{3})(?![,\d])', masked_full)
+        for x in [m.group(1)] if 300 <= int(x) <= 900]
+ 
+    if candidates_pos:
+        # Find positions of score-related keywords
+        kw_positions = [m.start() for m in re.finditer(
+            r'(?:cibil|bureau|credit)\s+score', masked_full, re.IGNORECASE)]
+        if kw_positions:
+            # Pick candidate closest to nearest keyword
+            best = min(candidates_pos,
+                       key=lambda cp: min(abs(cp[1] - kp) for kp in kw_positions))
+            return best[0]
+        # No keyword found — return first candidate (but after masking range text)
+        return candidates_pos[0][0]
+ 
     # NH / NTC = No History or New To Credit
     if re.search(r'\b(?:NH|NTC|no\s+history|new\s+to\s+credit)\b',
                  txt, re.IGNORECASE):
         return 650
-
+ 
     return 720  # safe fallback
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # INCOME EXTRACTION
 # ---------------------------------------------------------------------------
-
+ 
 def _extract_income(txt):
     """
     Extract net monthly income in rupees.
@@ -1338,18 +1393,18 @@ def _extract_income(txt):
         txt, re.IGNORECASE | re.DOTALL)
     if m:
         section = m.group(1)
-
+ 
     # Clean spaces in numbers: "65 000" → "65000"
     def _clean(t):
         return re.sub(r'(\d)\s(\d{3})\b', r'\1\2', t)
-
+ 
     # (regex, transform_fn)
     # transform_fn takes the matched string and returns monthly rupees
     def _rupees(s):      return float(s.replace(',', ''))
     def _annual(s):      return float(s.replace(',', '')) / 12
     def _lakhs_pm(s):    return float(s.replace(',', '')) * 100_000        # "7.80 L p.m."
     def _lakhs_pa(s):    return float(s.replace(',', '')) * 100_000 / 12   # "7.80 L p.a."
-
+ 
     patterns = [
         # Direct monthly rupee patterns
         (r'net\s+monthly\s+income[\s:\-₹Rs\.]*([0-9,]+)',               _rupees),
@@ -1358,6 +1413,11 @@ def _extract_income(txt):
         (r'take\s+home[\s:\-₹Rs\.]*([0-9,]+)',                          _rupees),
         (r'₹\s*([0-9,]+)\s*/?\s*(?:per\s+month|p\.?m\.?|monthly)',     _rupees),
         (r'([0-9,]+)\s*(?:per\s+month|p\.?m\.?)',                       _rupees),
+        # FIX BUG 2: CIBIL PDFs split 'Net Monthly Income' and 'Rs. 28,000'
+        # across table columns/rows. Need multiline [\s\S] matching.
+        (r'net\s+monthly[\s\S]{0,50}?Rs\.?\s*([0-9,]+)',                _rupees),
+        (r'(?:income|salary|earning)[^\n]{0,100}\nRs\.?\s*([0-9,]+)',   _rupees),
+        (r'Rs\.?\s*([0-9,]+)\s*\n(?:income|salary|earning)',            _rupees),
         # Lakhs per month: "7.80 L p.m." → ₹7,80,000/month
         (r'([0-9]+\.?[0-9]*)\s*(?:L|lakh|lakhs?)\s*'
          r'(?:p\.?m\.?|per\s+month|monthly)',                            _lakhs_pm),
@@ -1370,7 +1430,7 @@ def _extract_income(txt):
         # INCOME DETAILS section
         (r'(?:total|gross)\s+income[\s:\-₹Rs\.]*([0-9,]+)',             _rupees),
     ]
-
+ 
     for src in (_clean(section), _clean(txt)):
         for pat, transform in patterns:
             m2 = re.search(pat, src, re.IGNORECASE)
@@ -1382,12 +1442,12 @@ def _extract_income(txt):
                 except Exception:
                     pass
     return 50_000
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # ENQUIRY PARSER
 # ---------------------------------------------------------------------------
-
+ 
 def _parse_enquiries(txt):
     enq_section = ""
     m = re.search(
@@ -1395,7 +1455,7 @@ def _parse_enquiries(txt):
         txt, re.IGNORECASE | re.DOTALL)
     if m:
         enq_section = m.group(1)
-
+ 
     raw_dates = re.findall(r'\b(\d{2}-[A-Za-z]{3}-\d{4})\b', enq_section)
     today = datetime.now().date()
     parsed_dates = []
@@ -1406,30 +1466,30 @@ def _parse_enquiries(txt):
                 break
             except ValueError:
                 continue
-
+ 
     def _win(days):
         return sum(1 for d in parsed_dates if (today - d).days <= days)
-
+ 
     # Narrative pattern: "applied for 5 loans in last 3 months"
     narr3 = _re_int(
         r'(?:applied|enquired|enquiries?)\s+(?:for\s+)?(\d+)\s+'
         r'(?:loans?|cards?|products?)\s+in\s+(?:last\s+)?3\s+months?',
         txt, 0)
-
+ 
     enq_L3m  = max(_win(90),  narr3, _re_int(r'enquir(?:y|ies)\s*\(?3\s*m[^\d]{0,5}\)?[\s:\-]+(\d+)', txt, 0))
     enq_L6m  = max(_win(180),        _re_int(r'enquir(?:y|ies)\s*\(?6\s*m[^\d]{0,5}\)?[\s:\-]+(\d+)', txt, 0))
     enq_L12m = max(_win(365),        _re_int(r'enquir(?:y|ies)\s*\(?12\s*m[^\d]{0,5}\)?[\s:\-]+(\d+)', txt, 0))
     tot_enq  = max(len(parsed_dates), _re_int(r'total\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, 0))
-
+ 
     time_since_recent_enq = -99999
     if parsed_dates:
         time_since_recent_enq = (today - max(parsed_dates)).days
-
+ 
     CC_enq      = _re_int(r'credit\s+card\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, -99999)
     PL_enq      = _re_int(r'personal\s+loan\s+enquir(?:y|ies)[\s:\-]+(\d+)', txt, -99999)
     CC_enq_L6m  = 0; CC_enq_L12m = 0
     PL_enq_L6m  = 0; PL_enq_L12m = 0
-
+ 
     last_prod = first_prod = 'others'
     for pat, label in {
         r'personal\s+loan': 'PL', r'credit\s+card': 'CC',
@@ -1439,7 +1499,7 @@ def _parse_enquiries(txt):
         if re.search(pat, enq_section or txt, re.IGNORECASE):
             last_prod = first_prod = label
             break
-
+ 
     return dict(
         tot_enq=tot_enq, enq_L3m=enq_L3m, enq_L6m=enq_L6m, enq_L12m=enq_L12m,
         time_since_recent_enq=time_since_recent_enq,
@@ -1447,28 +1507,28 @@ def _parse_enquiries(txt):
         PL_enq=PL_enq, PL_enq_L6m=PL_enq_L6m, PL_enq_L12m=PL_enq_L12m,
         last_prod_enq2=last_prod, first_prod_enq2=first_prod,
     )
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # ACCOUNT / DPD TABLE PARSER
 # ---------------------------------------------------------------------------
-
+ 
 def _parse_accounts(txt):
     """
     Parse account table → DPD counts.
-
+ 
     Key fix (BUG 2): DPD value is the LAST standalone 3-digit code per line.
     Old code used re.search which matched the FIRST 3-digit code — picking
     '000' from the balance '45,000' instead of the DPD column '030'.
     New code: findall with negative lookbehind/ahead, take last match.
-
+ 
     Key fix (BUG 3): strip OCR noise from DPD: '0)' → '0'.
     Key fix (BUG 7): text DPD codes (NIL, SMA, SUB, DBT, LSS) handled.
     """
     accounts = []
     in_section = False
     seen_keys = set()
-
+ 
     for line in txt.split('\n'):
         lu = line.upper()
         if re.search(r'ACCOUNT\s+DETAILS?|LOAN\s+DETAILS?|CREDIT\s+FACILITIES', lu):
@@ -1477,12 +1537,12 @@ def _parse_accounts(txt):
             in_section = False; continue
         if not in_section or not line.strip():
             continue
-
+ 
         stat_m = re.search(
             r'\b(Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss|'
             r'Sub[-\s]?Standard|Standard|Special\s+Mention|SMA|SUB|DBT|LSS)\b',
             line, re.IGNORECASE)
-
+ 
         # FIX BUG 2: standalone 3-digit codes only (not inside comma-numbers)
         # Negative lookbehind: not preceded by comma or digit
         # Negative lookahead: not followed by comma or digit
@@ -1493,7 +1553,7 @@ def _parse_accounts(txt):
         text_dpd_m = re.search(
             r'\b(NIL|NA|N/A|XXX|STD|SMA|SUB|DBT|LSS|NPA|WO)\s*$',
             line.strip(), re.IGNORECASE)
-
+ 
         prod_label = None
         for pat, label in {
             r'credit\s+card|CC': 'CC',
@@ -1505,14 +1565,14 @@ def _parse_accounts(txt):
         }.items():
             if re.search(pat, line, re.IGNORECASE):
                 prod_label = label; break
-
+ 
         is_account_row = (
             stat_m or standalone_codes or text_dpd_m or
             re.search(r'\bINR\b|\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b|\bLtd\b',
                       line, re.IGNORECASE))
         if not is_account_row:
             continue
-
+ 
         # Determine DPD value
         if text_dpd_m:
             dpd_val = _parse_dpd_value(text_dpd_m.group(1))
@@ -1522,23 +1582,23 @@ def _parse_accounts(txt):
             dpd_val = _parse_dpd_value(raw_dpd)
         else:
             dpd_val = 0
-
+ 
         status = (stat_m.group(1).lower().replace(' ', '_').replace('-', '_')
                   if stat_m else 'active')
-
+ 
         # De-duplicate CC sub-accounts
         dedup_key = (prod_label, dpd_val, status)
         if dedup_key in seen_keys and prod_label == 'CC':
             continue
         seen_keys.add(dedup_key)
-
+ 
         accounts.append({'dpd': dpd_val, 'status': status,
                          'product': prod_label or 'others'})
-
+ 
     # Aggregate
     dpd_90 = dpd_60 = dpd_30 = 0
     written_off = settled = active = sub_std = 0
-
+ 
     if accounts:
         for acc in accounts:
             d, s = acc['dpd'], acc['status']
@@ -1561,7 +1621,7 @@ def _parse_accounts(txt):
         dpd_60      = len(re.findall(r'\b060\b|60\+?\s*dpd', txt, re.IGNORECASE))
         dpd_30      = len(re.findall(r'\b030\b|30\+?\s*dpd', txt, re.IGNORECASE))
         active      = min(len(re.findall(r'\bactive\b', txt, re.IGNORECASE)), 15)
-
+ 
     total_accounts = max(len(accounts), active + settled + written_off, 1)
     return dict(
         accounts=accounts,
@@ -1571,12 +1631,12 @@ def _parse_accounts(txt):
         total_accounts=total_accounts,
         pct_active=active / total_accounts,
     )
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # CATEGORICAL FLAG INFERENCE
 # ---------------------------------------------------------------------------
-
+ 
 def infer_categorical_flags(extraction_result: dict) -> dict:
     score       = int(extraction_result.get('Credit_Score', 700) or 700)
     dpd_30      = int(extraction_result.get('num_times_30p_dpd', 0) or 0)
@@ -1589,18 +1649,19 @@ def infer_categorical_flags(extraction_result: dict) -> dict:
     income      = float(extraction_result.get('NETMONTHLYINCOME', 0) or
                         extraction_result.get('avg_salary_6m', 50_000) or 50_000)
     tenure      = int(extraction_result.get('Time_With_Curr_Empr', 24) or 24)
-
+ 
     is_bureau_only = (
         'NETMONTHLYINCOME' in extraction_result
         and 'net_cash_surplus_6m' not in extraction_result
         and 'net_surplus' not in extraction_result
     )
-
+ 
     surplus = 0.0  # FIX L2: always initialised
-
+ 
     if is_bureau_only:
-        surplus = _infer_surplus_from_cibil(score, dpd_60, dpd_30, income)
-        payment_discipline = ('POOR'     if (dpd_60 >= 1 or dpd_30 >= 3)
+        dpd_90_bureau = int(extraction_result.get('dpd_90_count_6m', 0) or 0)
+        surplus = _infer_surplus_from_cibil(score, dpd_60, dpd_30, income, dpd_90=dpd_90_bureau)
+        payment_discipline = ('POOR'     if (dpd_60 >= 1 or dpd_90_bureau >= 1 or dpd_30 >= 3)
                               else 'MODERATE' if dpd_30 >= 1 else 'GOOD')
         cashflow_health    = ('HEALTHY'  if surplus >= 14_000
                               else 'STABLE'   if surplus >= 600
@@ -1640,7 +1701,7 @@ def infer_categorical_flags(extraction_result: dict) -> dict:
                               else 'STABLE' if (missing == 0 and score >= 700
                                                and dpd_30 == 0 and bounces == 0)
                               else 'MODERATE')
-
+ 
     return {
         'payment_discipline_flag': payment_discipline,
         'cashflow_health':         cashflow_health,
@@ -1650,12 +1711,12 @@ def infer_categorical_flags(extraction_result: dict) -> dict:
         '_inference_path':         'bureau_only' if is_bureau_only else 'bank_statement',
         '_surplus_estimate':       float(surplus),
     }
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # MAIN EXTRACTION FUNCTION
 # ---------------------------------------------------------------------------
-
+ 
 def extract_cibil_from_pdf(uploaded_file) -> dict:
     """CIBIL PDF → structured dict. Returns success=True/False."""
     if not OCR_AVAILABLE:
@@ -1663,13 +1724,13 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                 'error': OCR_ERROR_MSG or 'OCR libraries not installed.'}
     try:
         pdf_bytes = uploaded_file.read()
-
+ 
         # 1. OCR (multi-pass: PSM 6 + PSM 11, low-conf retry at 450 DPI)
         txt = _ocr_pdf(pdf_bytes)
-
+ 
         # 2. Credit score
         credit_score = _extract_credit_score(txt)
-
+ 
         # 3. Age / DOB
         age_extracted = 35
         for dob_pat in [
@@ -1691,7 +1752,7 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         if age_extracted == 35:
             age_extracted = _re_int(r'(?:^|\s)age[\s:\-]+(\d{2})\b',
                                     txt, 35, lo=18, hi=80)
-
+ 
         # 4. Gender — default 'U' (bias-neutral)
         if re.search(r'\bfemale\b|\bF\b|\bShe\b|\bHer\b', txt, re.IGNORECASE):
             gender = 'F'
@@ -1699,14 +1760,14 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
             gender = 'M'
         else:
             gender = 'U'
-
+ 
         if re.search(r'\bsingle\b|\bunmarried\b', txt, re.IGNORECASE):
             marital_status = 'Single'
         elif re.search(r'\bmarried\b|\bspouse\b', txt, re.IGNORECASE):
             marital_status = 'Married'
         else:
             marital_status = 'Unknown'
-
+ 
         # 5. Education
         education = 'GRADUATE'
         for pat, val in [
@@ -1719,10 +1780,10 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         ]:
             if re.search(pat, txt, re.IGNORECASE):
                 education = val; break
-
+ 
         # 6. Income
         monthly_income = _extract_income(txt)
-
+ 
         # 7. Employment
         employment_type = 'Salaried'
         if re.search(r'self.?employed|self\s+employ|proprietor|freelance',
@@ -1731,7 +1792,7 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         elif re.search(r'\bbusiness\b|\bfirm\b|\bpartner(ship)?\b',
                        txt, re.IGNORECASE):
             employment_type = 'Business'
-
+ 
         employment_tenure_months = 36
         m = re.search(
             r'(?:with\s+current\s+employer|employment\s+tenure|'
@@ -1744,7 +1805,7 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                 r'(?:with\s+current\s+employer|tenure)[^\d]{0,20}(\d+)\s*(?:month|mth)',
                 txt, re.IGNORECASE)
             if m: employment_tenure_months = int(m.group(1))
-
+ 
         existing_emi = 0
         for emi_pat in [
             r'(?:total\s+emi|existing\s+emi|current\s+emi|monthly\s+emi)'
@@ -1757,13 +1818,13 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                 v = int(mm.group(1).replace(',', ''))
                 if 500 < v < 500_000:
                     existing_emi = v; break
-
+ 
         business_vintage = 0
         mb = re.search(
             r'(?:business\s+(?:since|established|vintage|age|started))'
             r'[^\d]{0,20}(\d+)\s*(?:year|yr)', txt, re.IGNORECASE)
         if mb: business_vintage = int(mb.group(1))
-
+ 
         # 8. Credit utilisation
         cc_util_pct = -99999
         mc = re.search(
@@ -1774,10 +1835,10 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         pl_util = _re_float(
             r'(?:personal\s+loan\s+utiliz[ao]tion|pl\s+utiliz[ao]tion)'
             r'[^\d]{0,20}([\d\.]+)', txt, 0.25, lo=0, hi=5)
-
+ 
         # 9. Enquiries
         enq_data = _parse_enquiries(txt)
-
+ 
         # 10. Accounts / DPD  (BUG 2 + 3 + 7 fixed in _parse_accounts)
         acc = _parse_accounts(txt)
         dpd_90_count      = acc['dpd_90_count']
@@ -1793,11 +1854,11 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         num_sub = sub_std
         num_dbt = dpd_90_count
         num_lss = written_off_count
-
+ 
         # 11. Sanity check: high score + bad history
         if credit_score >= 750 and (written_off_count > 0 or dpd_90_count > 0):
             credit_score = min(credit_score, 550)
-
+ 
         # 12. Delinquency timings
         recent_level_of_deliq = max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)
         num_deliq_6mts    = dpd_30_count + dpd_60_count + dpd_90_count
@@ -1817,21 +1878,21 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         num_times_30p_dpd     = dpd_30_count + dpd_60_count + dpd_90_count
         num_times_60p_dpd     = dpd_60_count + dpd_90_count
         max_delinquency_level = max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)
-
+ 
         time_since_recent_payment = _re_int(
             r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*days?', txt, -99999)
         if time_since_recent_payment == -99999:
             mv = re.search(r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*(?:month|mth)',
                            txt, re.IGNORECASE)
             if mv: time_since_recent_payment = int(mv.group(1)) * 30
-
+ 
         time_since_first_deliq = (
             -99999 if num_times_delinquent == 0 else
             _re_int(r'first\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 365))
         time_since_recent_deliq = (
             -99999 if num_times_delinquent == 0 else
             _re_int(r'(?:last|recent)\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 90))
-
+ 
         # 13. Trade-line ratios
         pct_of_active_TLs_ever     = round(pct_active, 3)
         pct_opened_TLs_L6m_of_L12m = _re_float(
@@ -1848,27 +1909,28 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         pct_CC_enq_L6m_of_L12m = round(CC_enq_L6m / max(CC_enq_L12m, 1), 2) if CC_enq_L6m >= 0 else 0
         pct_PL_enq_L6m_of_ever = round(PL_enq_L6m / max(PL_enq if PL_enq >= 0 else 1, 1), 2)
         pct_CC_enq_L6m_of_ever = round(CC_enq_L6m / max(CC_enq if CC_enq >= 0 else 1, 1), 2)
-
+ 
         # 14. Product flags
         CC_Flag = 1 if re.search(r'credit\s+card', txt, re.IGNORECASE) else 0
         PL_Flag = 1 if re.search(r'personal\s+loan', txt, re.IGNORECASE) else 0
         HL_Flag = 1 if re.search(r'home\s+loan|housing\s+loan', txt, re.IGNORECASE) else 0
         GL_Flag = 1 if re.search(r'gold\s+loan', txt, re.IGNORECASE) else 0
-
+ 
         # 15. Net cash surplus
         net_cash_surplus = _re_int(
             r'(?:net\s+(?:cash\s+)?surplus|disposable\s+income)'
             r'[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)', txt, 0)
         if net_cash_surplus == 0:
             net_cash_surplus = int(_infer_surplus_from_cibil(
-                credit_score, dpd_60_count, dpd_30_count, float(monthly_income)))
-
+                credit_score, dpd_60_count, dpd_30_count, float(monthly_income),
+                dpd_90=dpd_90_count))
+ 
         # 16. Bank-statement proxies
         inward_bounce_count_3m = dpd_90_count + dpd_60_count
         salary_missing_months  = 0
         total_credit_6m = _re_int(r'total\s+credits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
         total_debit_6m  = _re_int(r'total\s+debits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
-
+ 
         # 17. Stage-1 field mapping
         s1 = {
             'AMT_INCOME_TOTAL':           monthly_income * 12,
@@ -1909,7 +1971,7 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
             'active_loans_count':         float(active_count),
             'bureau_score':               float(credit_score),
         }
-
+ 
         # 18. Stage-2 field mapping
         s2 = {
             'Credit_Score': credit_score, 'AGE': age_extracted,
@@ -1950,7 +2012,7 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
             'last_prod_enq2': enq_data['last_prod_enq2'],
             'first_prod_enq2': enq_data['first_prod_enq2'],
         }
-
+ 
         # 19. Categorical flags
         _inf = infer_categorical_flags({
             'Credit_Score': credit_score, 'num_times_30p_dpd': dpd_30_count,
@@ -1962,10 +2024,10 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
             'salary_missing_months': salary_missing_months,
             'net_cash_surplus_6m': net_cash_surplus,
         })
-
+ 
         # 20. FIX S-2: recent_deliq_flag from actual DPD
         recent_deliq_flag = 1 if (dpd_90_count > 0 or dpd_60_count > 0) else 0
-
+ 
         return {
             **s1, **s2,
             'existing_emi':              existing_emi if existing_emi > 0 else s1['total_emi_monthly'],
@@ -1989,7 +2051,7 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
             'success':                   True,
             'extraction_method':         'OCR+MultiPass_v4',
         }
-
+ 
     except Exception as e:
         import traceback
         return {
