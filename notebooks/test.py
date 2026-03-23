@@ -7798,7 +7798,6 @@
 
 
 
- 
 """
 Credit Risk Assessment Dashboard - Sage Green & Yellow Theme
 Enhanced with Modern UI/UX Design
@@ -7807,9 +7806,9 @@ Author: Zen Meraki
 Date: March 2026
 VERSION: 8.7 - Renamed from test.py, dead code removed, all audit fixes applied (C1/H1/H2/M1/M2/M3/L1/L2/L3)
 """
- 
+
 import streamlit as st
- 
+
 # =============================================================================
 # PAGE CONFIGURATION – MUST BE THE VERY FIRST STREAMLIT COMMAND
 # =============================================================================
@@ -7819,7 +7818,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
- 
+
 # =============================================================================
 # STANDARD LIBRARY / THIRD-PARTY IMPORTS
 # =============================================================================
@@ -7837,12 +7836,12 @@ import sys
 import os
 from pathlib import Path
 import re
- 
+
 # =============================================================================
 # SUPPRESS SCIKIT-LEARN VERSION WARNINGS
 # =============================================================================
 warnings.filterwarnings("ignore", category=UserWarning, module='sklearn')
- 
+
 # =============================================================================
 # DYNAMIC PATH RESOLUTION
 # =============================================================================
@@ -7864,7 +7863,7 @@ POSSIBLE_LOCATIONS = [
 for loc in POSSIBLE_LOCATIONS:
     if loc.exists() and str(loc) not in sys.path:
         sys.path.insert(0, str(loc))
- 
+
 # =============================================================================
 # OPTIONAL OCR DEPENDENCIES – GRACEFUL FALLBACK
 # =============================================================================
@@ -7900,7 +7899,7 @@ except Exception as _e:
         )
     else:
         OCR_ERROR_MSG = f"OCR init error ({_name}): {_e}"
- 
+
 # =============================================================================
 # IMPORT CSS – WITH FALLBACK
 # =============================================================================
@@ -7940,7 +7939,7 @@ except ImportError:
     </style>
     """
 st.markdown(CSS, unsafe_allow_html=True)
- 
+
 # =============================================================================
 # CITY TIER MAPPING
 # =============================================================================
@@ -7950,7 +7949,7 @@ CITY_TIERS = {
     "Tier 3 – Small City / Town": "Tier 3",
     "Rural / Village": "Rural",
 }
- 
+
 # =============================================================================
 # SESSION STATE INITIALIZATION
 # =============================================================================
@@ -7969,9 +7968,9 @@ def init_session_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
- 
+
 init_session_state()
- 
+
 # =============================================================================
 # IMPORT BUSINESS LOGIC MODULES
 # =============================================================================
@@ -7983,11 +7982,6 @@ try:
         clean_sentinel_values
     )
     from affordability_engine import check_net_disposable
-    # OCR FIX: import from dedicated module instead of using inline copies
-    # The inline extract_cibil_from_pdf and infer_categorical_flags below
-    # (L1356-1902) are replaced by the v3.0 module which adds deskew,
-    # high-DPI retry, full Stage-1/Stage-2 field mapping, and bias fixes.
-    from ocr_extractor import extract_cibil_from_pdf, infer_categorical_flags
 except ImportError as e:
     st.error(f"❌ Failed to import required modules: {e}")
     st.info("""
@@ -7996,7 +7990,24 @@ except ImportError as e:
     - utils/__init__.py  |  utils/pdf_generator.py
     """)
     st.stop()
- 
+
+# OCR module — imported SEPARATELY so a missing cv2/pytesseract does not
+# crash the whole app. If the import fails, OCR_AVAILABLE stays False and
+# the upload widgets show a clear error message instead.
+try:
+    from ocr_extractor import extract_cibil_from_pdf, infer_categorical_flags
+except ImportError as _ocr_import_err:
+    OCR_AVAILABLE = False
+    OCR_ERROR_MSG = (f"OCR module import failed: {_ocr_import_err}. "
+                     "Ensure ocr_extractor.py is in utils/ and cv2/pytesseract are installed.")
+    # Provide no-op fallbacks so the rest of the app doesn't crash
+    def extract_cibil_from_pdf(_f):
+        return {'success': False, 'error': OCR_ERROR_MSG}
+    def infer_categorical_flags(_d):
+        return {'payment_discipline_flag': 'MODERATE', 'cashflow_health': 'MODERATE',
+                'liquidity_flag': 'MODERATE', 'bureau_risk_flag': 'MEDIUM',
+                'salary_stability_flag': 'MODERATE', '_inference_path': 'fallback'}
+
 # =============================================================================
 # STAGE 2 ENGINE – ROBUST FALLBACK
 # =============================================================================
@@ -8011,7 +8022,7 @@ except ImportError:
         raise NotImplementedError("Stage 2 engine not available")
     def is_stage2_available(): return False
     def get_stage2_status(): return {"error": "Stage 2 engine module not found", "available": False}
- 
+
 # =============================================================================
 # PDF GENERATION – SAFE FALLBACK
 # FIX A-1: Use explicit try/except import blocks instead of a single-path import.
@@ -8031,7 +8042,7 @@ except ImportError:
         PDF_AVAILABLE = True
     except ImportError:
         PDF_AVAILABLE = False  # UI will show warning — see A-4 note in pdf download buttons
- 
+
 # =============================================================================
 # JSON SANITIZER
 # =============================================================================
@@ -8047,7 +8058,7 @@ def sanitize_for_json(obj: Any) -> Any:
     try:
         json.dumps(obj); return obj
     except (TypeError, ValueError): return str(obj)
- 
+
 # =============================================================================
 # LOAD TRAINED MODEL ASSETS (Stage 1 Random Forest)
 # =============================================================================
@@ -8074,18 +8085,18 @@ def load_model_assets():
         return {'loaded': False, 'error': 'credit_risk_assets.pkl not found. Please run the training script first.'}
     except Exception as e:
         return {'loaded': False, 'error': f'Error loading model: {str(e)}'}
- 
+
 ASSETS = load_model_assets()
 if not ASSETS['loaded']:
     st.error(f"❌ {ASSETS['error']}")
     st.info("Please ensure 'credit_risk_assets.pkl' is in the same directory as this app.")
     st.stop()
- 
+
 MODEL      = ASSETS['model']
 TOP_FEATURES = ASSETS['features']
 LE_MAP     = ASSETS['le_map']
 TARGET_LE  = ASSETS['target_le']
- 
+
 # =============================================================================
 # PD CALCULATION FUNCTIONS
 # NOTE: calculate_emi, calculate_affordability, generate_reason_codes,
@@ -8100,7 +8111,7 @@ def bureau_score_to_pd(bureau_score):
     elif bureau_score >= 600: return 6.0 + (650 - bureau_score) / 50 * 4.0
     elif bureau_score >= 550: return 10.0 + (600 - bureau_score) / 50 * 5.0
     else: return min(25.0, 15.0 + (550 - bureau_score) / 50 * 10.0)
- 
+
 def foir_to_pd_adjustment(foir_percentage):
     if foir_percentage <= 30: return -0.75
     elif foir_percentage <= 40: return 0.00
@@ -8109,7 +8120,7 @@ def foir_to_pd_adjustment(foir_percentage):
     elif foir_percentage <= 55: return 2.25
     elif foir_percentage <= 60: return 3.50
     else: return 6.00
- 
+
 def delinquency_to_pd_multiplier(dpd_90_count, dpd_30_count=0):
     if dpd_90_count >= 3: return 5.0
     elif dpd_90_count == 2: return 3.0
@@ -8117,7 +8128,7 @@ def delinquency_to_pd_multiplier(dpd_90_count, dpd_30_count=0):
     elif dpd_30_count >= 3: return 1.6
     elif dpd_30_count >= 1: return 1.3
     else: return 1.0
- 
+
 def employment_stability_to_pd_adjustment(employment_type, tenure_months, business_vintage_years=0):
     if employment_type == 'Salaried':
         if tenure_months >= 36: return -0.5
@@ -8129,14 +8140,14 @@ def employment_stability_to_pd_adjustment(employment_type, tenure_months, busine
         elif business_vintage_years >= 2: return 0.0
         else: return 1.5
     else: return 1.0
- 
+
 def inquiry_pattern_to_pd_adjustment(recent_inquiries_3m):
     if recent_inquiries_3m <= 1: return -0.3
     elif recent_inquiries_3m <= 3: return 0.0
     elif recent_inquiries_3m <= 5: return 0.8
     elif recent_inquiries_3m <= 8: return 1.5
     else: return 3.0
- 
+
 def ml_confidence_to_pd_adjustment(ml_confidence, ml_decision):
     if ml_decision == "APPROVE":
         if ml_confidence >= 90: return -0.5
@@ -8144,7 +8155,7 @@ def ml_confidence_to_pd_adjustment(ml_confidence, ml_decision):
         else: return 0.5
     elif ml_decision == "REVIEW": return 1.0
     else: return 5.0
- 
+
 def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_count=0,
                        employment_type='Salaried', employment_tenure=24, business_vintage=0,
                        recent_inquiries=2, ml_decision='APPROVE'):
@@ -8162,7 +8173,7 @@ def calculate_final_pd(bureau_score, foir, confidence, dpd_90_count=0, dpd_30_co
     # 4.2% of rejects exceeded the old cap. 50% preserves discrimination in the
     # high-risk tail while staying within practical underwriting display ranges.
     return round(max(0.5, min(final_pd, 50.0)), 2)
- 
+
 # =============================================================================
 # CATEGORICAL FLAG INFERENCE (v8.5 dual-dataset)
 # =============================================================================
@@ -8171,13 +8182,13 @@ def _infer_surplus_from_cibil(score: int, dpd_60: int, dpd_30: int, income: floa
     elif score < 650 or dpd_60 >= 1: return income * -0.2
     elif score < 700: return income * 0.1
     else: return income * 0.3
- 
+
 # extract_cibil_from_pdf and infer_categorical_flags removed from here.
 # Imported from utils/ocr_extractor.py (v3.0) above — see import block.
 # The v3.0 module adds: deskew pre-processing, high-DPI retry,
 # full Stage-1/Stage-2 field mapping, gender bias fix ('U' default),
 # recent_deliq_flag from actual DPD, and account_quality_score.
- 
+
 def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: int, pd_pct: float,
                                application_id: str = None, source: str = 'stage1'):
     """
@@ -8185,7 +8196,7 @@ def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: in
     source = 'stage1' | 'stage2' | 'batch'
     When Stage 2 completes, it REPLACES the Stage 1 record for the same application_id,
     so the fairness dashboard always shows the FINAL binding decision.
- 
+
     NOTE A-3 — risk_score scale:
       source='stage1' or 'batch' → risk_score is on 0-100 (Stage 1 engine output).
       source='stage2'            → risk_score is the combined_risk_score on 0-1000
@@ -8214,7 +8225,7 @@ def log_decision_for_fairness(customer_data: dict, decision: str, risk_score: in
     # D3 FIX: cap at 1000 entries to prevent unbounded memory growth per session
     if len(st.session_state.fairness_log) > 1000:
         st.session_state.fairness_log = st.session_state.fairness_log[-1000:]
- 
+
 # =============================================================================
 # STAGE 2 BINARY RESOLVER  (defined early — called from page routing below)
 # =============================================================================
@@ -8247,8 +8258,8 @@ def resolve_stage2_to_binary(stage2_result: dict) -> dict:
     else:
         result['interest_rate_range'] = 'N/A — Rejected'
     return result
- 
- 
+
+
 # =============================================================================
 # HYBRID DECISION ENGINE
 # =============================================================================
@@ -8260,7 +8271,7 @@ def make_hybrid_decision_enhanced(customer_dict):
     kyc_verified = customer_dict.get('kyc_verified', True)
     bankruptcy_flag = customer_dict.get('bankruptcy_flag', False)
     fraud_flag = customer_dict.get('fraud_flag', False)
- 
+
     # AGE POLICY GATE — split by employment type per spec
     # UI allows 18–70 for input flexibility, but policy enforces:
     #   - All types:       age must be > 24  (≤ 24 → too young)
@@ -8280,51 +8291,51 @@ def make_hybrid_decision_enhanced(customer_dict):
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 70.0, 'affordability_data': {}}
     policy_checks['age'] = f"✅ Age {age} (Valid — {_age_label})"
- 
+
     if not kyc_verified:
         policy_checks['kyc'] = "❌ KYC Not Verified"
         return {'decision': "REJECT", 'reason': "Policy Gate: KYC verification required", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 70.0, 'affordability_data': {}}
     policy_checks['kyc'] = "✅ KYC Verified"
- 
+
     if not customer_dict.get('rbi_consent', False):
         policy_checks['rbi_consent'] = "❌ RBI Consent not obtained"
         return {'decision': "REJECT", 'reason': "Policy Gate: Customer consent not obtained", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 70.0, 'affordability_data': {}}
     policy_checks['rbi_consent'] = "✅ Consent Obtained"
- 
+
     if bankruptcy_flag:
         policy_checks['bankruptcy'] = "❌ Active Bankruptcy"
         return {'decision': "REJECT", 'reason': "Policy Gate: Active bankruptcy", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 95.0, 'affordability_data': {}}
     policy_checks['bankruptcy'] = "✅ No Bankruptcy"
- 
+
     if fraud_flag:
         policy_checks['fraud'] = "❌ Fraud Flag"
         return {'decision': "REJECT", 'reason': "Policy Gate: Fraud detected", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 95.0, 'affordability_data': {}}
     policy_checks['fraud'] = "✅ No Fraud History"
- 
+
     dependents = customer_dict.get('dependents', 0)
     dependents_flag_review = dependents > 5
     policy_checks['dependents'] = (f"⚠️ Dependents {dependents} (>5: Review Required)"
                                    if dependents_flag_review else f"✅ Dependents {dependents} (Acceptable)")
- 
+
     monthly_income = customer_dict.get('avg_salary_6m', 0)
     employment_tenure = customer_dict.get('employment_tenure_months', 0)
     business_vintage = customer_dict.get('business_vintage_years', 0)
- 
+
     if monthly_income < 15000:
         policy_checks['income'] = f"❌ Income ₹{monthly_income:,.0f} (Min: ₹15,000)"
         return {'decision': "REJECT", 'reason': "Policy Gate: Income below minimum", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 72.0, 'affordability_data': {}}
     policy_checks['income'] = f"✅ Income ₹{monthly_income:,.0f}"
- 
+
     if employment_type == 'Salaried' and employment_tenure < 6:
         policy_checks['tenure'] = f"❌ Tenure {employment_tenure} months (Min: 6)"
         return {'decision': "REJECT", 'reason': "Policy Gate: Insufficient tenure", 'confidence': 0,
@@ -8337,7 +8348,7 @@ def make_hybrid_decision_enhanced(customer_dict):
                 'pd_percentage': 72.0, 'affordability_data': {}}
     policy_checks['tenure'] = (f"✅ Tenure {employment_tenure} months" if employment_type == 'Salaried'
                                 else f"✅ Business Vintage {business_vintage} years")
- 
+
     bureau_score = customer_dict.get('bureau_score', 0)
     # FIX 1: round DPD counts — synthetic data generator applied Gaussian jitter
     # (×normal(1, 0.005)) to all numeric columns, producing float values like 0.9904,
@@ -8346,14 +8357,14 @@ def make_hybrid_decision_enhanced(customer_dict):
     dpd_90 = int(round(float(customer_dict.get('dpd_90_count_6m', 0) or 0)))
     credit_utilization = customer_dict.get('credit_utilization_pct', 0)
     recent_inquiries = customer_dict.get('recent_inquiries_3m', 0)
- 
+
     if bureau_score < 550:
         policy_checks['bureau'] = f"❌ Bureau Score {bureau_score} (Min: 550)"
         return {'decision': "REJECT", 'reason': "Policy Gate: Bureau score too low", 'confidence': 0,
                 'class_probs': {'REJECT': 100}, 'policy_checks': policy_checks, 'risk_score': 0,
                 'pd_percentage': 82.0, 'affordability_data': {}}
     policy_checks['bureau'] = f"✅ Bureau Score {bureau_score}"
- 
+
     # DPD90 TIERED GATE:
     #   0     -> PASS (clean)
     #   1-5   -> REVIEW flag (elevated risk, underwriter required)
@@ -8376,19 +8387,19 @@ def make_hybrid_decision_enhanced(customer_dict):
                                     else f"✅ Utilization {credit_utilization}%")
     policy_checks['inquiries'] = (f"⚠️ {recent_inquiries} recent inquiries" if recent_inquiries > 5
                                   else f"✅ {recent_inquiries} inquiries")
- 
+
     active_loans = customer_dict.get('active_loans_count', 0)
     active_loans_flag = active_loans >= 5
     policy_checks['active_loans'] = (f"⚠️ High active loans ({int(active_loans)}) — Review"
                                      if active_loans_flag else f"✅ Active loans: {int(active_loans)}")
- 
+
     salary_stability = customer_dict.get('salary_stability_flag', 'STABLE')
     salary_flag = salary_stability == 'UNSTABLE'
     policy_checks['salary'] = (
         "⚠️ Unstable salary — Review required" if salary_stability == 'UNSTABLE' else
         "⚠️ Moderate salary stability" if salary_stability == 'MODERATE' else "✅ Stable salary"
     )
- 
+
     input_df = pd.DataFrame([customer_dict])
     for col in TOP_FEATURES:
         if col not in input_df.columns:
@@ -8408,23 +8419,23 @@ def make_hybrid_decision_enhanced(customer_dict):
     except Exception:
         confidence = 75.0
         class_probs = {ml_decision: 100.0}
- 
+
     loan_amount   = customer_dict.get('loan_amount', 0)
     loan_tenure   = customer_dict.get('loan_tenure_months', 12)
     interest_rate = customer_dict.get('interest_rate', 10.5)
     existing_emi  = customer_dict.get('existing_emi', 0)
     affordability_data = calculate_affordability(monthly_income, loan_amount, interest_rate, loan_tenure, existing_emi)
     foir = affordability_data['foir_percentage']
- 
+
     if foir > 50:
         ml_decision = "REJECT"
         policy_checks['foir'] = f"❌ FOIR {foir:.1f}% exceeds maximum allowed (50%)"
- 
+
     if dependents_flag_review and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if active_loans_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if salary_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"
     if dpd_90_review_flag and ml_decision == "APPROVE": ml_decision = "REVIEW"  # DPD90 1-5 forces review
- 
+
     risk_score = calculate_final_risk_score(
         bureau_score=bureau_score, ml_confidence=confidence, foir=foir,
         dpd_90=dpd_90, dpd_30=customer_dict.get('dpd_30_count_6m', 0),
@@ -8447,7 +8458,7 @@ def make_hybrid_decision_enhanced(customer_dict):
         'policy_checks': policy_checks, 'risk_score': risk_score,
         'pd_percentage': round(pd_percentage, 2), 'affordability_data': affordability_data
     }
- 
+
 # =============================================================================
 # BATCH PREDICTION ENGINE
 # =============================================================================
@@ -8543,7 +8554,7 @@ def process_batch_predictions(df):
             )
         results.append(result)
     return pd.DataFrame(results)
- 
+
 # =============================================================================
 # MODERN UI COMPONENTS
 # =============================================================================
@@ -8563,7 +8574,7 @@ def render_decision_header(decision_data, customer_data):
         card_class = "decision-card decision-card-review"; icon = "⚠"; subtitle = "Requires Manual Review"
     st.markdown(f'<div class="{card_class}"><div class="decision-title">{icon} {decision}</div><div class="decision-subtitle">{subtitle}</div></div>', unsafe_allow_html=True)
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: st.markdown(f'<div class="stat-card"><div class="stat-number">{risk_score}</div><div class="stat-label">Risk Score</div></div>', unsafe_allow_html=True)
+    with col1: st.markdown(f'<div class="stat-card"><div class="stat-number">{risk_score}</div><div class="stat-label">Risk Score (0–100)</div></div>', unsafe_allow_html=True)
     _pd_color = '#48bb78' if pd_score < 5 else ('#ed8936' if pd_score < 10 else '#f56565')
     _pd_label = 'Low Risk' if pd_score < 5 else ('Moderate Risk' if pd_score < 10 else 'High Risk')
     with col2: st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{_pd_color}">{pd_score}%</div><div class="stat-label">PD Score</div><div style="font-size:11px;color:{_pd_color};font-weight:600">{_pd_label}</div></div>', unsafe_allow_html=True)
@@ -8574,7 +8585,7 @@ def render_decision_header(decision_data, customer_data):
     col1, col2 = st.columns(2)
     with col1: st.markdown(f'<div class="info-box"><strong>📋 Application ID:</strong> {app_id}</div>', unsafe_allow_html=True)
     with col2: st.markdown(f'<div class="info-box"><strong>🕐 Decision Timestamp:</strong> {timestamp}</div>', unsafe_allow_html=True)
- 
+
 def render_info_card(title, icon, data_dict, status_dict=None):
     st.markdown(f'<div class="info-card"><div class="info-card-title">{icon} {title}</div><div class="info-card-content">', unsafe_allow_html=True)
     for label, value in data_dict.items():
@@ -8585,13 +8596,13 @@ def render_info_card(title, icon, data_dict, status_dict=None):
             elif status_dict[label] == "warning": status = '<span class="status-badge badge-warning">⚠</span>'
         st.markdown(f'<div class="data-row"><span class="data-label">{label}</span><span class="data-value">{value} {status}</span></div>', unsafe_allow_html=True)
     st.markdown('</div></div>', unsafe_allow_html=True)
- 
+
 def render_reason_codes(reasons):
     st.markdown('<div class="info-card"><div class="info-card-title">📝 Decision Reasons</div><div class="info-card-content">', unsafe_allow_html=True)
     for i, reason in enumerate(reasons, 1):
         st.markdown(f'<div class="reason-item"><span class="reason-icon">{i}.</span>{reason}</div>', unsafe_allow_html=True)
     st.markdown('</div></div>', unsafe_allow_html=True)
- 
+
 def create_modern_gauge(value, title, max_value=100):
     color = "#f56565" if value <= 50 else "#ed8936" if value <= 75 else "#48bb78"
     fig = go.Figure(go.Indicator(
@@ -8609,7 +8620,7 @@ def create_modern_gauge(value, title, max_value=100):
     ))
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='white')
     return fig
- 
+
 def create_modern_bar_chart(class_probs):
     df = pd.DataFrame({'Decision': list(class_probs.keys()), 'Probability': list(class_probs.values())})
     colors = {'REVIEW': '#ed8936', 'APPROVE': '#48bb78', 'REJECT': '#f56565'}
@@ -8620,10 +8631,10 @@ def create_modern_bar_chart(class_probs):
                       margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='white', plot_bgcolor='white',
                       yaxis={'gridcolor': '#e2e8f0', 'range': [0, max(class_probs.values()) * 1.2]})
     return fig
- 
+
 # =============================================================================
 # STAGE 2 BINARY RESOLVER
- 
+
 # =============================================================================
 # STAGE 2 RESULTS DISPLAY
 # =============================================================================
@@ -8635,7 +8646,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
     stage2_tier       = stage2_result.get('stage2_tier', 'N/A')
     stage2_confidence = stage2_result.get('stage2_confidence', 0)
     combined_risk     = stage2_result.get('combined_risk_score', 0)
- 
+
     # ── Fairness log: use Stage 2 FINAL decision, remove the earlier Stage 1 entry ──
     # Stage 1 logged a preliminary decision for this customer. Since Stage 2
     # is the BINDING final decision, we replace that entry so the fairness
@@ -8654,10 +8665,10 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         application_id=app_id,
         source='stage2'
     )
- 
+
     # Update session state — Stage 2 is the binding final decision
     st.session_state['stage2_final_decision'] = final_decision
- 
+
     if final_decision == "APPROVE":
         st.markdown(
             '<div class="decision-card decision-card-approved" style="padding:2.5rem;">'
@@ -8676,22 +8687,31 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             '<div class="decision-title" style="font-size:3.5rem;font-weight:900;letter-spacing:2px;">⚑  REVIEW</div>'
             '<div class="decision-subtitle" style="font-size:1.2rem;margin-top:0.5rem;">⚠️ STAGE 2 FINAL DECISION — Requires Manual Credit Officer Review</div>'
             '</div>', unsafe_allow_html=True)
- 
+
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("Risk Tier", stage2_tier)
     with col2: st.metric("Interest Rate", interest_range)
-    with col3: st.metric("Combined Risk Score", combined_risk)
+    with col3: st.metric("Combined Risk Score (0–1000)", combined_risk)
     with col4: st.metric("Stage 2 Confidence", f"{stage2_confidence:.1f}%" if stage2_confidence else "N/A")
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Summary", "🔬 Analysis", "📋 Data", "📥 Download"])
- 
+
     with tab1:
         s1_dec = st.session_state.get('stage1_decision', 'N/A')
         s2_label = "✅ APPROVE" if final_decision == "APPROVE" else "❌ REJECT"
+        # FIX SCALE: Stage 1 is 0-100, Stage 2 combined is 0-1000.
+        # Show them with explicit scale labels so they are never compared directly.
+        s1_score_raw = stage1_data.get('risk_score', 'N/A')
+        s1_score_display = f"{s1_score_raw}/100" if isinstance(s1_score_raw, (int, float)) else s1_score_raw
+        s2_score_display = f"{combined_risk}/1000"
         comparison_df = pd.DataFrame([
-            {'Stage': 'Stage 1 (Screening)', 'Decision': s1_dec, 'Risk Score': stage1_data.get('risk_score', 'N/A'), 'Tier': 'N/A', 'Note': 'APPROVE/REVIEW → proceed to Stage 2'},
-            {'Stage': 'Stage 2 — FINAL', 'Decision': s2_label, 'Risk Score': combined_risk, 'Tier': f"{stage2_tier} | {interest_range}", 'Note': 'Binding final decision'}
+            {'Stage': 'Stage 1 (Screening)', 'Decision': s1_dec,
+             'Risk Score': s1_score_display, 'Scale': '0–100 (higher = riskier)',
+             'Tier': 'N/A', 'Note': 'APPROVE/REVIEW → proceed to Stage 2'},
+            {'Stage': 'Stage 2 — FINAL', 'Decision': s2_label,
+             'Risk Score': s2_score_display, 'Scale': '0–1000 (higher = riskier)',
+             'Tier': f"{stage2_tier} | {interest_range}", 'Note': 'Binding final decision'}
         ])
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
         tier_info = {
@@ -8704,7 +8724,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
             td = tier_info[stage2_tier]
             st.markdown(f'<div style="background:{td["color"]};color:white;padding:1rem;border-radius:0.5rem;"><h3 style="margin:0;color:white;">{stage2_tier}: {td["name"]}</h3><p style="margin:0.5rem 0 0 0;">{td["desc"]}</p></div>', unsafe_allow_html=True)
         st.info(stage2_result.get('reason', 'N/A'))
- 
+
     with tab2:
         col1, col2 = st.columns(2)
         with col1:
@@ -8714,19 +8734,25 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                     st.metric(tier, f"{prob:.1f}%")
         with col2:
             st.markdown("**Stage Scores**")
-            st.metric("Stage 1 Risk Score", stage1_data.get('risk_score', 'N/A'))
-            st.metric("Stage 2 Risk Score", stage2_result.get('stage2_risk_score', 'N/A'))
-            st.metric("Combined Score", combined_risk)
+            s1_raw = stage1_data.get('risk_score', 'N/A')
+            s1_display = f"{s1_raw} / 100" if isinstance(s1_raw, (int, float)) else s1_raw
+            s2_raw = stage2_result.get('stage2_risk_score', 'N/A')
+            s2_display = f"{s2_raw} / 1000" if isinstance(s2_raw, (int, float)) else s2_raw
+            combined_display = f"{combined_risk} / 1000"
+            st.metric("Stage 1 Risk Score (0–100)", s1_display)
+            st.metric("Stage 2 Risk Score (0–1000)", s2_display)
+            st.metric("Combined Score (0–1000)", combined_display)
+            st.caption("⚠️ Stage 1 and Stage 2 scores use different scales — do not compare directly.")
         with st.expander("Complete Stage 2 Result (JSON)"):
             st.json(stage2_result)
- 
+
     with tab3:
         col1, col2 = st.columns(2)
         with col1:
             with st.expander("Stage 1 Customer Data"): st.json(stage1_customer)
         with col2:
             with st.expander("Enhanced CIBIL Data"): st.json(enhanced_customer_data)
- 
+
     with tab4:
         if PDF_AVAILABLE and generate_audit_pdf is not None:
             try:
@@ -8749,7 +8775,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                 _ml_adj    = ml_confidence_to_pd_adjustment(_conf, stage1_data.get('decision','REVIEW'))
                 _final_pd  = stage1_data.get('pd_percentage', round(max(0.5, min(
                     _base_pd * _deliq_mul + _foir_adj + _emp_adj + _inq_adj + _ml_adj, 25.0)), 2))
- 
+
                 report_data = {
                     'application_id':  _safe(stage1_customer.get('application_id')),
                     'timestamp':       datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -8797,7 +8823,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
                 st.error(f"PDF generation failed: {str(e)}")
         else:
             st.warning("⚠️ PDF generation is not available. Ensure utils/pdf_generator.py is present and `reportlab` is installed (add to requirements.txt).")
- 
+
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -8814,7 +8840,7 @@ def display_stage2_results(stage2_result, stage1_data, stage1_customer, enhanced
         if st.button("🏠 Home", key="home_stage2", use_container_width=True):
             st.session_state.page_navigation = "🏠 Home"
             st.rerun()
- 
+
 # =============================================================================
 # FAIRNESS MONITORING DASHBOARD
 # =============================================================================
@@ -8830,15 +8856,15 @@ def render_fairness_dashboard():
             Data is session-based — decisions accumulate as applications are processed.
         </div>
     """, unsafe_allow_html=True)
- 
+
     log = st.session_state.get('fairness_log', [])
- 
+
     col1, col2 = st.columns([3, 1])
     with col2:
         if st.button("🗑️ Clear Log", use_container_width=True):
             st.session_state.fairness_log = []
             st.rerun()
- 
+
     if not log:
         st.info("ℹ️ No decisions logged yet. Process some applications from the Assessment page to see fairness metrics here.")
         st.markdown("### 📊 What will appear here:")
@@ -8850,11 +8876,11 @@ def render_fairness_dashboard():
         - **Average Risk Score & PD by group** — confirms scoring is not systematically biased
         """)
         return
- 
+
     df = pd.DataFrame(log)
     df['approved'] = (df['decision'] == 'APPROVE').astype(int)
     n = len(df)
- 
+
     # Source breakdown
     if 'source' in df.columns:
         n_s2    = int((df['source'] == 'stage2').sum())
@@ -8862,19 +8888,19 @@ def render_fairness_dashboard():
         n_batch = int((df['source'] == 'batch').sum())
         src_note = f"📌 {n_s2} Stage 2 (final) · {n_s1} Stage 1 (screening) · {n_batch} Batch"
         st.caption(src_note)
- 
+
     st.markdown("---")
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.metric("Total Decisions", n)
     with c2: st.metric("Approvals", int(df['approved'].sum()), f"{df['approved'].mean()*100:.1f}%")
     with c3: st.metric("Reviews", int((df['decision']=='REVIEW').sum()))
     with c4: st.metric("Rejections", int((df['decision']=='REJECT').sum()))
- 
+
     st.markdown("---")
     tab1, tab2, tab3, tab4 = st.tabs(["👥 Gender", "🏙️ City Tier", "📅 Age Band", "💼 Employment"])
- 
+
     COLOR_MAP = {'APPROVE': '#48bb78', 'REVIEW': '#ed8936', 'REJECT': '#f56565'}
- 
+
     def _approval_bar(group_col, title):
         grp = df.groupby(group_col).agg(
             Total=('decision', 'count'),
@@ -8885,7 +8911,7 @@ def render_fairness_dashboard():
         grp['Approval Rate %'] = (grp['Approved'] / grp['Total'] * 100).round(1)
         grp['Avg Risk Score'] = grp['Avg_Risk'].round(1)
         grp['Avg PD %'] = grp['Avg_PD'].round(2)
- 
+
         col1, col2 = st.columns([2, 1])
         with col1:
             fig = px.bar(grp, x=group_col, y='Approval Rate %',
@@ -8911,7 +8937,7 @@ def render_fairness_dashboard():
             st.dataframe(display_df, use_container_width=True, hide_index=True)
             overall_str = f"{overall_rate:.1f}%"
             st.caption(f"Overall approval rate: **{overall_str}**. 🔴 = >15pp below average (potential bias). 🟢 = >15pp above average.")
- 
+
     with tab1:
         if df['gender'].nunique() > 1:
             _approval_bar('gender', 'Approval Rate by Gender')
@@ -8922,25 +8948,25 @@ def render_fairness_dashboard():
             st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Need 2+ gender values in decisions to show chart. Ensure Gender field is filled on the form.")
- 
+
     with tab2:
         if df['city_tier'].nunique() > 1:
             _approval_bar('city_tier', 'Approval Rate by City Tier')
         else:
             st.info("Need 2+ city tier values. Ensure City Tier field is filled on the form.")
- 
+
     with tab3:
         if df['age_band'].nunique() > 1:
             _approval_bar('age_band', 'Approval Rate by Age Band')
         else:
             st.info("Need decisions across multiple age bands (24-30, 31-40, 41-50, 51+).")
- 
+
     with tab4:
         if df['employment_type'].nunique() > 1:
             _approval_bar('employment_type', 'Approval Rate by Employment Type')
         else:
             st.info("Need 2+ employment types in decisions.")
- 
+
     st.markdown("---")
     st.markdown("### 📥 Export Fairness Report")
     col1, col2 = st.columns(2)
@@ -8952,17 +8978,17 @@ def render_fairness_dashboard():
     with col2:
         st.caption("⚠️ **Note:** This log is session-based and resets when the app restarts. "
                    "For persistent fairness monitoring, connect to a database or export regularly.")
- 
- 
+
+
 # =============================================================================
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
     st.markdown("# 🏦 Credit Risk Engine")
     st.markdown("---")
- 
+
     navigation_options = ["🏠 Home", "👤 Assessment", "📊 Batch Process", "⚖️ Fairness", "📈 Model Info", "ℹ️ About"]
- 
+
     if (st.session_state.stage1_complete and st.session_state.stage1_decision in ['APPROVE', 'REVIEW']):
         navigation_options.insert(2, "🔬 Stage 2 Analysis")
         st.success(f"✅ Stage 1: {st.session_state.stage1_decision}")
@@ -8970,16 +8996,16 @@ with st.sidebar:
     elif st.session_state.stage1_complete:
         st.warning(f"⚠️ Stage 1: {st.session_state.stage1_decision}")
         st.caption("Stage 2 only for APPROVE/REVIEW")
- 
+
     page = st.radio("**Navigation**", navigation_options,
                     label_visibility="collapsed", key="page_navigation")
- 
+
     st.markdown("---")
     stage2_indicator = '✅ Active' if STAGE2_AVAILABLE and is_stage2_available() else '❌ Inactive'
     ocr_indicator = '✅ Ready' if OCR_AVAILABLE else '❌ Not Installed'
     pdf_indicator = '✅ Ready' if PDF_AVAILABLE else '❌ Not Installed'
     fairness_count = len(st.session_state.fairness_log)
- 
+
     st.markdown(f"""
     <div class="info-card">
         <div class="info-card-title">System Status</div>
@@ -8994,11 +9020,11 @@ with st.sidebar:
         </div>
     </div>
     """, unsafe_allow_html=True)
- 
+
     with st.expander("🎯 **Top Features**"):
         for i, feat in enumerate(TOP_FEATURES[:5], 1):
             st.markdown(f"`{i}.` {feat}")
- 
+
     if st.session_state.stage1_complete:
         st.markdown("---")
         st.markdown("### 🚀 Quick Actions")
@@ -9006,7 +9032,7 @@ with st.sidebar:
             for k in ['stage1_complete','stage1_decision','stage1_data','current_customer_data','extracted_cibil_data']:
                 st.session_state[k] = False if k == 'stage1_complete' else None
             st.rerun()
- 
+
 # =============================================================================
 # PAGE ROUTING
 # =============================================================================
@@ -9039,12 +9065,12 @@ if page == "🏠 Home":
             • <strong>v8.5 features retained</strong> — dual-dataset OCR inference, categorical flag auto-fill
         </div>
     """, unsafe_allow_html=True)
- 
+
 elif page == "👤 Assessment":
     st.markdown('<p class="main-header">Credit Assessment</p>', unsafe_allow_html=True)
- 
+
     pdf_just_extracted = st.session_state.get('pdf_just_extracted', False)
- 
+
     with st.expander("📄 Upload CIBIL PDF to auto‑fill bureau fields",
                      expanded=pdf_just_extracted or not st.session_state.get('pdf_bureau_score')):
         if pdf_just_extracted:
@@ -9071,55 +9097,66 @@ elif page == "👤 Assessment":
                 st.rerun()
         else:
             st.markdown('<div class="info-box">💡 Complete the form below or upload a CIBIL PDF to auto‑fill bureau data.</div>', unsafe_allow_html=True)
-            uploaded_pdf = st.file_uploader("Upload CIBIL Report (PDF)", type=['pdf'], key="assessment_pdf")
-            if uploaded_pdf is not None:
-                st.info(f"📄 File ready: **{uploaded_pdf.name}** ({uploaded_pdf.size/1024:.1f} KB)")
-                if st.button("🔍 Extract & Auto-fill Form", key="extract_assessment", type="primary", use_container_width=True):
-                    with st.spinner("🔄 Running OCR on CIBIL PDF — this takes 10-30 seconds..."):
-                        extraction_result = extract_cibil_from_pdf(uploaded_pdf)
-                    if extraction_result.get('success', False):
-                        # ── Stage 1: 60k dataset field autofill ──────────────
-                        st.session_state.pdf_age               = int(extraction_result.get('AGE', 35))
-                        st.session_state.pdf_bureau_score      = int(extraction_result.get('Credit_Score', 720))
-                        st.session_state.pdf_dpd_90            = int(extraction_result.get('dpd_90_count_6m', 0))
-                        st.session_state.pdf_dpd_30            = int(extraction_result.get('dpd_30_count_6m', 0))
-                        _cc_util_raw = extraction_result.get('CC_utilization', 0) or 0
-                        st.session_state.pdf_credit_util       = int(max(0, float(_cc_util_raw)) * 100) if _cc_util_raw > 0 else 0
-                        st.session_state.pdf_inquiries         = int(extraction_result.get('enq_L3m', 2))
-                        st.session_state.pdf_active_loans      = int(extraction_result.get('num_std', 1))
-                        _emi = int(extraction_result.get('existing_emi') or extraction_result.get('total_emi_monthly') or 0)
-                        st.session_state.pdf_existing_emi      = _emi
-                        _income = int(extraction_result.get('NETMONTHLYINCOME') or extraction_result.get('avg_salary_6m') or 50000)
-                        st.session_state.pdf_monthly_income    = _income
-                        st.session_state.pdf_annual_income     = int(extraction_result.get('AMT_INCOME_TOTAL') or _income * 12)
-                        _surplus = int(extraction_result.get('net_cash_surplus_6m') or extraction_result.get('_surplus_proxy') or 0)
-                        st.session_state.pdf_net_surplus       = _surplus
-                        st.session_state.pdf_employment_tenure = int(extraction_result.get('Time_With_Curr_Empr', 24))
-                        # Employment type (new — was never filled before)
-                        _emp = extraction_result.get('employment_type', 'Salaried')
-                        if _emp in ['Salaried', 'Self-Employed', 'Business']:
-                            st.session_state.pdf_employment_type = _emp
-                        # Business vintage (new)
-                        st.session_state.pdf_business_vintage  = int(extraction_result.get('business_vintage_years', 0))
-                        # Gender (new — was extracted but never applied to form)
-                        _g = extraction_result.get('GENDER', 'M')
-                        st.session_state.pdf_gender = 'Male' if _g == 'M' else 'Female'
-                        # Dependents: CIBIL PDFs rarely state this; leave at form default
-                        # Inward bounce & missing salary (inferred from delinquency)
-                        st.session_state.pdf_inward_bounce     = int(extraction_result.get('inward_bounce_count_3m', 0))
-                        st.session_state.pdf_salary_missing    = int(extraction_result.get('salary_missing_months', 0))
-                        # Categorical flags (now come directly from extraction, no second infer needed)
-                        st.session_state.pdf_salary_stability   = extraction_result.get('salary_stability_flag', 'MODERATE')
-                        st.session_state.pdf_payment_discipline = extraction_result.get('payment_discipline_flag', 'GOOD')
-                        st.session_state.pdf_cashflow_health    = extraction_result.get('cashflow_health', 'MODERATE')
-                        st.session_state.pdf_liquidity_flag     = extraction_result.get('liquidity_flag', 'MODERATE')
-                        st.session_state.pdf_bureau_risk_flag   = extraction_result.get('bureau_risk_flag', 'MODERATE')
-                        st.session_state.pdf_just_extracted     = True
-                        st.session_state._last_extraction       = extraction_result
-                        st.rerun()
-                    else:
-                        st.error(f"❌ Extraction failed: {extraction_result.get('error', 'Unknown error')}")
- 
+            if not OCR_AVAILABLE:
+                st.warning(f"⚠️ PDF auto-fill unavailable — OCR not installed. {OCR_ERROR_MSG or ''} Complete the form manually below.")
+            else:
+                uploaded_pdf = st.file_uploader("Upload CIBIL Report (PDF)", type=['pdf'], key="assessment_pdf")
+                if uploaded_pdf is not None:
+                    st.info(f"📄 File ready: **{uploaded_pdf.name}** ({uploaded_pdf.size/1024:.1f} KB)")
+                    if st.button("🔍 Extract & Auto-fill Form", key="extract_assessment", type="primary", use_container_width=True):
+                        with st.spinner("🔄 Running OCR on CIBIL PDF — this takes 10-30 seconds..."):
+                            extraction_result = extract_cibil_from_pdf(uploaded_pdf)
+                        if extraction_result.get('success', False):
+                            st.session_state.pdf_age               = int(extraction_result.get('AGE', 35))
+                            st.session_state.pdf_bureau_score      = int(extraction_result.get('Credit_Score', 720))
+                            st.session_state.pdf_dpd_90            = int(extraction_result.get('dpd_90_count_6m', 0))
+                            st.session_state.pdf_dpd_30            = int(extraction_result.get('dpd_30_count_6m', 0))
+                            _cc_util_raw = extraction_result.get('CC_utilization', 0) or 0
+                            st.session_state.pdf_credit_util       = int(max(0, float(_cc_util_raw)) * 100) if _cc_util_raw > 0 else 0
+                            st.session_state.pdf_inquiries         = int(extraction_result.get('enq_L3m', 2))
+                            st.session_state.pdf_active_loans      = int(extraction_result.get('num_std', 1))
+                            _emi = int(extraction_result.get('existing_emi') or extraction_result.get('total_emi_monthly') or 0)
+                            st.session_state.pdf_existing_emi      = _emi
+                            _income = int(extraction_result.get('NETMONTHLYINCOME') or extraction_result.get('avg_salary_6m') or 50000)
+                            st.session_state.pdf_monthly_income    = _income
+                            st.session_state.pdf_annual_income     = int(extraction_result.get('AMT_INCOME_TOTAL') or _income * 12)
+                            _surplus = int(extraction_result.get('net_cash_surplus_6m') or extraction_result.get('_surplus_proxy') or 0)
+                            st.session_state.pdf_net_surplus       = _surplus
+                            st.session_state.pdf_employment_tenure = int(extraction_result.get('Time_With_Curr_Empr', 24))
+                            _emp = extraction_result.get('employment_type', 'Salaried')
+                            if _emp in ['Salaried', 'Self-Employed', 'Business']:
+                                st.session_state.pdf_employment_type = _emp
+                            st.session_state.pdf_business_vintage  = int(extraction_result.get('business_vintage_years', 0))
+                            _g = extraction_result.get('GENDER', 'U')
+                            if _g == 'F':
+                                st.session_state.pdf_gender = 'Female'
+                            elif _g == 'M':
+                                st.session_state.pdf_gender = 'Male'
+                            else:
+                                st.session_state.pdf_gender = 'Prefer not to say'
+                            st.session_state.pdf_inward_bounce     = int(extraction_result.get('inward_bounce_count_3m', 0))
+                            st.session_state.pdf_salary_missing    = int(extraction_result.get('salary_missing_months', 0))
+                            st.session_state.pdf_salary_stability   = extraction_result.get('salary_stability_flag', 'MODERATE')
+                            st.session_state.pdf_payment_discipline = extraction_result.get('payment_discipline_flag', 'GOOD')
+                            st.session_state.pdf_cashflow_health    = extraction_result.get('cashflow_health', 'MODERATE')
+                            st.session_state.pdf_liquidity_flag     = extraction_result.get('liquidity_flag', 'MODERATE')
+                            st.session_state.pdf_bureau_risk_flag   = extraction_result.get('bureau_risk_flag', 'LOW')
+                            st.session_state.pdf_just_extracted     = True
+                            st.session_state._last_extraction       = extraction_result
+                            st.session_state._last_inferred_flags   = {
+                                'payment_discipline_flag': extraction_result.get('payment_discipline_flag', '—'),
+                                'cashflow_health':         extraction_result.get('cashflow_health', '—'),
+                                'liquidity_flag':          extraction_result.get('liquidity_flag', '—'),
+                                'bureau_risk_flag':        extraction_result.get('bureau_risk_flag', '—'),
+                                'salary_stability_flag':   extraction_result.get('salary_stability_flag', '—'),
+                            }
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Extraction failed: {extraction_result.get('error', 'Unknown error')}")
+                            if extraction_result.get('traceback'):
+                                with st.expander("🔍 Error details"):
+                                    st.code(extraction_result['traceback'])
+
     with st.form("assessment_form"):
         # ── Identity & Eligibility ─────────────────────────────────────────
         st.markdown('<p class="section-header">👤 Identity & Eligibility</p>', unsafe_allow_html=True)
@@ -9156,7 +9193,7 @@ elif page == "👤 Assessment":
                 index=0 if not st.session_state.get('pdf_bankruptcy', False) else 1) == 'Yes'
             fraud_flag = st.selectbox("Fraud Flag", ['No', 'Yes'],
                 index=0 if not st.session_state.get('pdf_fraud', False) else 1) == 'Yes'
- 
+
         # RBI Consent — REQUIRED
         st.markdown('<p class="section-header">📜 RBI Compliance</p>', unsafe_allow_html=True)
         col1, col2 = st.columns([2, 1])
@@ -9173,7 +9210,7 @@ elif page == "👤 Assessment":
                     ⚠️ Without consent, the application cannot proceed per RBI DLG 2022.
                 </div>
             """, unsafe_allow_html=True)
- 
+
         # Employment tenure
         st.markdown('<p class="section-header">💼 Employment</p>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -9194,7 +9231,7 @@ elif page == "👤 Assessment":
                     Self-Employed/Business: min 2 years
                 </div>
             """, unsafe_allow_html=True)
- 
+
         # Credit Bureau
         st.markdown('<p class="section-header">🏦 Credit Bureau</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
@@ -9215,7 +9252,7 @@ elif page == "👤 Assessment":
                 value=int(st.session_state.get('pdf_active_loans', 1)))
             existing_emi = st.number_input("Existing Total EMI (₹)", 0, 200000,
                 value=int(st.session_state.get('pdf_existing_emi', 15000)), step=1000)
- 
+
         # Income & Financial
         st.markdown('<p class="section-header">💰 Income & Financial</p>', unsafe_allow_html=True)
         col1, col2, col3, col4 = st.columns(4)
@@ -9240,7 +9277,7 @@ elif page == "👤 Assessment":
                 value=float(st.session_state.get('pdf_interest_rate', 10.5)), step=0.5)
             amt_annuity = st.number_input("Requested EMI (₹)", 0, 200000,
                 value=int(st.session_state.get('pdf_amt_annuity', 8500)), step=500)
- 
+
         # Additional Credit Behaviour
         st.markdown('<p class="section-header">📋 Additional Credit Behaviour</p>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
@@ -9261,10 +9298,10 @@ elif page == "👤 Assessment":
         with col3:
             inward_bounce_count   = st.number_input("Inward Bounce Count (3M)", 0, 10, value=int(st.session_state.get('pdf_inward_bounce', 0)))
             salary_missing_months = st.number_input("Missing Salary Months (6M)", 0, 6, value=int(st.session_state.get('pdf_salary_missing', 0)))
- 
+
         st.markdown("<br>", unsafe_allow_html=True)
         submitted = st.form_submit_button("🔍 Assess Credit Risk", use_container_width=True)
- 
+
     if submitted:
         timestamp = datetime.now()
         app_id = "PL" + timestamp.strftime("%Y%m%d%H%M%S")
@@ -9293,10 +9330,10 @@ elif page == "👤 Assessment":
             'inward_bounce_count_3m': inward_bounce_count,
             'salary_missing_months': salary_missing_months,
         }
- 
+
         with st.spinner("🔄 Processing Stage 1 assessment..."):
             decision_data = make_hybrid_decision_enhanced(customer_data)
- 
+
         # Inject ML confidence so reason_codes.py can distinguish ML-driven REVIEW
         customer_data['ml_confidence'] = decision_data.get('confidence', 0)
         reasons = generate_reason_codes(
@@ -9306,24 +9343,24 @@ elif page == "👤 Assessment":
             policy_checks=decision_data.get('policy_checks', {})
         )
         customer_data['reason_codes'] = reasons
- 
+
         # Log to fairness monitor (Stage 1 — may be replaced by Stage 2 final decision)
         log_decision_for_fairness(customer_data, decision_data.get('decision','ERROR'),
                                   decision_data.get('risk_score', 0), decision_data.get('pd_percentage', 0),
                                   application_id=customer_data.get('application_id'),
                                   source='stage1')
- 
+
         st.session_state.stage1_complete = True
         st.session_state.stage1_decision = decision_data.get('decision', 'ERROR')
         st.session_state.stage1_data = decision_data
         st.session_state.current_customer_data = customer_data
- 
+
         for key in list(st.session_state.keys()):
             if key.startswith('pdf_') or key in ('_last_extraction', '_last_inferred_flags'):
                 del st.session_state[key]
- 
+
         tab1, tab2, tab3, tab4 = st.tabs(["📋 Application", "📊 Decision", "🔍 Analysis", "📝 Audit"])
- 
+
         with tab1:
             st.markdown('<p class="section-header">Application Summary</p>', unsafe_allow_html=True)
             col1, col2 = st.columns(2)
@@ -9344,14 +9381,14 @@ elif page == "👤 Assessment":
                 render_info_card("📋 Loan Request", "📋",
                                  {"Amount": f"₹{loan_amount:,}", "Tenure": f"{loan_tenure} months",
                                   "Interest Rate": f"{interest_rate}%", "Requested EMI": f"₹{amt_annuity:,}"})
- 
+
         with tab2:
             st.markdown('<p class="section-header">Decision Summary</p>', unsafe_allow_html=True)
             render_decision_header(decision_data, customer_data)
             st.markdown("<br>", unsafe_allow_html=True)
- 
+
             final_decision = decision_data.get('decision', 'ERROR')
- 
+
             if final_decision in ['APPROVE', 'REVIEW']:
                 st.markdown("---")
                 st.markdown('<div class="info-box" style="background:linear-gradient(135deg,#10B981,#059669);color:white;text-align:center;"><h3 style="margin:0;color:white;">✅ Eligible for Stage 2 Deep Dive</h3></div>', unsafe_allow_html=True)
@@ -9374,13 +9411,13 @@ elif page == "👤 Assessment":
             elif final_decision == 'REJECT':
                 st.markdown("---")
                 st.markdown('<div style="background:linear-gradient(135deg,#EF4444,#DC2626);color:white;padding:1rem;border-radius:0.5rem;text-align:center;"><h3 style="margin:0;color:white;">❌ Stage 2 Not Available</h3><p style="margin:0.5rem 0 0 0;">Application rejected. Stage 2 only for APPROVE/REVIEW.</p></div>', unsafe_allow_html=True)
- 
+
             st.markdown("<br>", unsafe_allow_html=True)
             affordability = decision_data.get('affordability_data', {})
             foir      = affordability.get('foir_percentage', 0)
             total_emi = int(round(affordability.get('total_emi', 0)))
             net_disp  = int(round(affordability.get('net_disposable', 0)))
- 
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 render_info_card("Identity & Eligibility", "👤",
@@ -9407,7 +9444,7 @@ elif page == "👤 Assessment":
                      f"FOIR: {foir:.1f}%": "pass" if foir <= 50 else "fail",
                      f"Total EMI: ₹{total_emi:,}": "pass",
                      f"Net Disposable: ₹{net_disp:,}": "pass" if net_disp >= 10000 else "warning"})
- 
+
             st.markdown("<br>", unsafe_allow_html=True)
             render_reason_codes(reasons)
             st.markdown("<br>", unsafe_allow_html=True)
@@ -9428,7 +9465,7 @@ elif page == "👤 Assessment":
             with col2:
                 if st.button("🔄 Re-Evaluate", key="reevaluate_btn", use_container_width=True):
                     st.rerun()
- 
+
         with tab3:
             st.markdown('<p class="section-header">Model Analysis</p>', unsafe_allow_html=True)
             col1, col2 = st.columns(2)
@@ -9447,7 +9484,7 @@ elif page == "👤 Assessment":
                 'Final PD': f"{decision_data.get('pd_percentage', 0)}%"
             }.items():
                 st.markdown(f"**{factor}:** {value}")
- 
+
         with tab4:
             st.markdown('<p class="section-header">Audit Trail</p>', unsafe_allow_html=True)
             audit_log = sanitize_for_json({
@@ -9484,43 +9521,43 @@ elif page == "👤 Assessment":
                                    data=json.dumps(audit_log, indent=2),
                                    file_name=f"audit_{app_id}.json", mime="application/json",
                                    use_container_width=True)
- 
+
 elif page == "🔬 Stage 2 Analysis":
     st.markdown('<p class="main-header">Stage 2: CIBIL Deep Dive</p>', unsafe_allow_html=True)
- 
+
     if not st.session_state.get('stage1_complete', False):
         st.error("❌ You must complete Stage 1 Assessment first!")
         if st.button("← Go to Assessment", use_container_width=True):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
         st.stop()
- 
+
     if st.session_state.get('stage1_decision') not in ['APPROVE', 'REVIEW']:
         st.error("❌ Stage 2 is only available for APPROVED or REVIEW applications!")
         if st.button("← Go Back", use_container_width=True):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
         st.stop()
- 
+
     if not (STAGE2_AVAILABLE and is_stage2_available()):
         st.error("❌ Stage 2 model not available! Please ensure `stage2_cibil_model.pkl` is in the project directory.")
         if st.button("← Go Back", use_container_width=True):
             st.session_state.page_navigation = "👤 Assessment"
             st.rerun()
         st.stop()
- 
+
     stage1_data = st.session_state.get('stage1_data', {})
     stage1_customer = st.session_state.get('current_customer_data', {})
- 
+
     st.markdown(f'<div class="info-box" style="background:linear-gradient(135deg,#3B82F6,#2563EB);color:white;"><h3 style="margin:0;color:white;">📊 Stage 1 Results</h3><p style="margin:0.5rem 0 0 0;"><strong>Decision:</strong> {st.session_state.get("stage1_decision","N/A")} | <strong>Risk Score:</strong> {stage1_data.get("risk_score","N/A")} | <strong>App ID:</strong> {stage1_customer.get("application_id","N/A")}</p></div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
- 
+
     tab_options = ["Manual Entry", "PDF Upload", "Batch Analysis"]
     default_tab = st.session_state.get('stage2_selected_tab', 'Manual Entry')
     selected_tab = st.radio("Select input method", tab_options,
                             index=tab_options.index(default_tab) if default_tab in tab_options else 0,
                             horizontal=True, label_visibility="collapsed")
- 
+
     if selected_tab == "Manual Entry":
         st.markdown('<p class="section-header">Manual CIBIL Data Entry</p>', unsafe_allow_html=True)
         with st.form("stage2_manual_form"):
@@ -9546,7 +9583,7 @@ elif page == "🔬 Stage 2 Analysis":
                 enq_L3m = st.number_input("Inquiries (3M)", 0, 20, 2)
                 enq_L6m = st.number_input("Inquiries (6M)", 0, 30, 4)
                 enq_L12m = st.number_input("Inquiries (12M)", 0, 50, 6)
- 
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**Account Quality**")
@@ -9573,10 +9610,10 @@ elif page == "🔬 Stage 2 Analysis":
                 pl_flag = st.selectbox("Personal Loan", ["Yes", "No"]) == "No"
                 hl_flag = st.selectbox("Home Loan", ["Yes", "No"]) == "No"
                 gl_flag = st.selectbox("Gold Loan", ["Yes", "No"]) == "No"
- 
+
             st.markdown("<br>", unsafe_allow_html=True)
             submitted_s2 = st.form_submit_button("🔬 Run Stage 2 Analysis", use_container_width=True, type="primary")
- 
+
         if submitted_s2:
             with st.spinner("🔬 Running Stage 2 CIBIL Deep Analysis..."):
                 enhanced_customer_data = stage1_customer.copy()
@@ -9612,7 +9649,7 @@ elif page == "🔬 Stage 2 Analysis":
                 except Exception as e:
                     st.error(f"❌ Stage 2 analysis failed: {str(e)}")
                     st.exception(e)
- 
+
     elif selected_tab == "PDF Upload":
         st.markdown('<p class="section-header">📄 CIBIL PDF Upload</p>', unsafe_allow_html=True)
         if not OCR_AVAILABLE:
@@ -9627,7 +9664,7 @@ elif page == "🔬 Stage 2 Analysis":
                         extraction_result = extract_cibil_from_pdf(uploaded_pdf)
                     if extraction_result.get('success', False):
                         st.success("✅ PDF extraction successful!")
- 
+
                         # ── Summary metrics ──────────────────────────────────
                         c1, c2, c3, c4 = st.columns(4)
                         c1.metric("Credit Score",    extraction_result.get('Credit_Score', 'N/A'))
@@ -9644,22 +9681,22 @@ elif page == "🔬 Stage 2 Analysis":
                         c2.metric("Cashflow Health",    extraction_result.get('cashflow_health','—'))
                         c3.metric("Bureau Risk",        extraction_result.get('bureau_risk_flag','—'))
                         c4.metric("Salary Stability",   extraction_result.get('salary_stability_flag','—'))
- 
+
                         if extraction_result.get('written_off_count', 0) > 0:
                             st.warning(f"⚠️ {extraction_result['written_off_count']} written-off accounts detected — score may be overridden.")
- 
+
                         _surplus_proxy = extraction_result.get('_surplus_proxy', 0)
                         if _surplus_proxy:
                             st.info(f"💡 Bureau-only PDF — net surplus estimated from income: ₹{_surplus_proxy:,}")
- 
+
                         with st.expander("📋 View all extracted fields"):
                             _display = {k: v for k, v in extraction_result.items() if k not in ('raw_text','success','extraction_method')}
                             st.json(_display)
- 
+
                         # ── Build enhanced_customer_data ─────────────────────
                         # Start from Stage 1 customer (has gender, city_tier, rbi_consent, loan details)
                         enhanced_customer_data = stage1_customer.copy()
- 
+
                         # Apply ALL extracted fields directly — the new extractor maps every column
                         _skip = {'raw_text', 'success', 'extraction_method',
                                  'loan_amount', 'loan_tenure_months', 'interest_rate',
@@ -9667,7 +9704,7 @@ elif page == "🔬 Stage 2 Analysis":
                         for k, v in extraction_result.items():
                             if k not in _skip and v is not None:
                                 enhanced_customer_data[k] = v
- 
+
                         # Income safety: if CIBIL income << Stage 1 application income, keep Stage 1
                         _s1_inc = stage1_customer.get('avg_salary_6m', 50000)
                         _s2_inc = extraction_result.get('NETMONTHLYINCOME', 0) or 0
@@ -9675,10 +9712,10 @@ elif page == "🔬 Stage 2 Analysis":
                             enhanced_customer_data['avg_salary_6m'] = _s1_inc
                             enhanced_customer_data['AMT_INCOME_TOTAL'] = _s1_inc * 12
                             st.warning(f"⚠️ CIBIL income ₹{_s2_inc:,} << application income ₹{_s1_inc:,} — using application income for FOIR.")
- 
+
                         # Sentinel cleanup
                         enhanced_customer_data = clean_sentinel_values(enhanced_customer_data)
- 
+
                         with st.spinner("🔬 Running Stage 2 analysis..."):
                             try:
                                 stage2_result = make_two_stage_decision(enhanced_customer_data, stage1_function=make_hybrid_decision_enhanced)
@@ -9689,13 +9726,13 @@ elif page == "🔬 Stage 2 Analysis":
                                 st.exception(e)
                     else:
                         st.error("❌ PDF extraction failed: " + extraction_result.get('error', 'Unknown'))
- 
+
     elif selected_tab == "Batch Analysis":
         st.info("📊 Stage 2 Batch analysis coming soon.")
- 
+
 elif page == "⚖️ Fairness":
     render_fairness_dashboard()
- 
+
 elif page == "📊 Batch Process":
     st.markdown('<p class="main-header">Batch Processing</p>', unsafe_allow_html=True)
     st.markdown('<div class="info-box">📤 Upload a CSV file with customer data for bulk credit assessment.</div>', unsafe_allow_html=True)
@@ -9793,7 +9830,7 @@ elif page == "📊 Batch Process":
         st.download_button("📥 Download CSV Template", data=template_df.to_csv(index=False),
                            file_name="credit_assessment_template_v8.7.csv",
                            mime="text/csv", use_container_width=True)
- 
+
 elif page == "📈 Model Info":
     st.markdown('<p class="main-header">Model Information</p>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
@@ -9804,7 +9841,7 @@ elif page == "📈 Model Info":
     st.markdown('<p class="section-header">Top Features</p>', unsafe_allow_html=True)
     feature_df = pd.DataFrame({'Rank': range(1, min(21, len(TOP_FEATURES)+1)), 'Feature': TOP_FEATURES[:20]})
     st.dataframe(feature_df, use_container_width=True, hide_index=True)
- 
+
 elif page == "ℹ️ About":
     st.markdown('<p class="main-header">About</p>', unsafe_allow_html=True)
     st.markdown("""
@@ -9854,4 +9891,3 @@ elif page == "ℹ️ About":
                 </ul></div>
             </div>
         """, unsafe_allow_html=True)
- 
