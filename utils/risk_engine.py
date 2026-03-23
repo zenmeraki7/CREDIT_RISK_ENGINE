@@ -291,7 +291,7 @@
 
 
 
-
+ 
 """
 Risk Engine
 Calculates Risk Score (0-100, higher = more risky), PD multipliers,
@@ -544,6 +544,19 @@ def fill_missing_ml_fields(customer_dict: dict) -> None:
         'total_late_90_6m':           customer_dict.get('total_late_90_6m', dpd_90),
         'total_emi_monthly':          customer_dict.get('existing_emi', 0),
         'max_utilization':            customer_dict.get('credit_utilization_pct', 0),
+        # ── FIX M1: 3 model features that were defaulting to 0 (worse than training mean) ──
+        # total_payments_6m: COUNT field (training mean≈5, median≈4).
+        #   Old proxy was existing_emi×6 (rupees — wrong unit, -0.11 correlation).
+        #   Default 3 = conservative count estimate matching training scale.
+        'total_payments_6m':          customer_dict.get('total_payments_6m', 3),
+        # avg_balance_pos: POS/installment average balance (training mean≈7.5, 49% are 0).
+        #   0 is a defensible default — no POS card = no balance.
+        'avg_balance_pos':            customer_dict.get('avg_balance_pos', 0.0),
+        # salary_date_std: std deviation of salary credit dates across 6 months.
+        #   Training mean=2.12, std=0.86. 0% of training rows have 0.
+        #   Defaulting to 0 was HIGH bias — nobody has perfectly regular salary dates.
+        #   Use training mean 2.0 as safe neutral default.
+        'salary_date_std':            customer_dict.get('salary_date_std', 2.0),
     }
     for field, default_val in defaults.items():
         if field not in customer_dict:
