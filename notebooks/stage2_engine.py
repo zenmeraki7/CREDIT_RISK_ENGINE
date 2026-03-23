@@ -563,9 +563,6 @@
 
 
 
-
-
- 
   
 """
 STAGE 2 CIBIL DEEP DIVE ENGINE
@@ -651,85 +648,119 @@ def _safe_util(value, default=0.0):
 # =============================================================================
 def generate_stage2_reasons(customer_data, stage2_tier, tier_probs, combined_risk_score):
     """
-    Build a list of reason strings based on CIBIL data and model output.
-    Returns list of 2‑4 strings.
+    Build a structured list of reason strings based on CIBIL data and model output.
+    Returns list of 2–6 strings covering: tier summary, bureau score, delinquency,
+    FOIR/income, utilization, inquiry pattern, written-off/settled accounts.
     """
     reasons = []
  
-    # Tier‑based main reason
+    # ── 1. Tier summary with bureau score context ─────────────────────────────
+    bureau = int(customer_data.get('Credit_Score', customer_data.get('bureau_score', 0)) or 0)
+    bureau_label = (
+        "excellent" if bureau >= 750 else
+        "good"      if bureau >= 700 else
+        "fair"      if bureau >= 650 else
+        "poor"      if bureau >= 600 else "very poor"
+    )
     tier_descriptions = {
-        'P1': '✅ Excellent CIBIL profile – lowest risk tier.',
-        'P2': '✅ Good CIBIL profile – standard risk.',
-        'P3': '⚠️ Subprime CIBIL profile – elevated risk.',
-        'P4': '❌ High‑risk CIBIL profile – significant delinquency indicators.',
+        'P1': f"✅ Excellent CIBIL profile — lowest risk tier. Bureau score {bureau} ({bureau_label}).",
+        'P2': f"✅ Good CIBIL profile — standard risk tier. Bureau score {bureau} ({bureau_label}).",
+        'P3': f"⚠️ Subprime CIBIL profile — elevated risk. Bureau score {bureau} ({bureau_label}).",
+        'P4': f"❌ High-risk CIBIL profile — significant delinquency. Bureau score {bureau} ({bureau_label}).",
     }
     if stage2_tier in tier_descriptions:
         reasons.append(tier_descriptions[stage2_tier])
  
-    # Probability strength
-    if stage2_tier in tier_probs and tier_probs[stage2_tier] > 70:
-        reasons.append(f"Model confidence in tier {stage2_tier} is {tier_probs[stage2_tier]:.1f}%.")
+    # ── 2. Model confidence ───────────────────────────────────────────────────
+    if stage2_tier in tier_probs:
+        conf = tier_probs[stage2_tier]
+        if conf >= 70:
+            reasons.append(f"Model confidence in tier {stage2_tier}: {conf:.1f}% (high).")
+        elif conf >= 50:
+            reasons.append(f"Model confidence in tier {stage2_tier}: {conf:.1f}% (moderate — borderline case).")
+        else:
+            reasons.append(f"⚠️ Low model confidence ({conf:.1f}%) — applicant is borderline between tiers.")
  
-    # Negative signals
-    cc_util = customer_data.get('CC_utilization', 0)
-    if cc_util > 0.75:
-        reasons.append(f"⚠️ High credit card utilization ({cc_util*100:.1f}%).")
+    # ── 3. Delinquency signals (highest impact) ───────────────────────────────
+    dpd_90 = int(customer_data.get('dpd_90_count_6m', 0) or 0)
+    dpd_30 = int(customer_data.get('num_times_30p_dpd', customer_data.get('dpd_30_count_6m', 0)) or 0)
+    recent_deliq = int(customer_data.get('recent_deliq_flag', 0) or 0)
  
-    pl_util = customer_data.get('PL_utilization', 0)
-    if pl_util > 0.75:
-        reasons.append(f"⚠️ High personal loan utilization ({pl_util*100:.1f}%).")
- 
-    dpd_90 = customer_data.get('dpd_90_count_6m', 0)
     if dpd_90 > 5:
-        reasons.append(f"❌ {dpd_90} instance(s) of 90+ DPD — Severe (>5, hard reject threshold).")
+        reasons.append(f"❌ {dpd_90} instance(s) of 90+ DPD in last 6M — severe delinquency (hard-reject threshold exceeded).")
     elif dpd_90 >= 1:
-        reasons.append(f"⚠️ {dpd_90} instance(s) of 90+ DPD — Review required (1–5 range).")
+        reasons.append(f"⚠️ {dpd_90} instance(s) of 90+ DPD in last 6M — elevated default risk.")
+    elif dpd_30 >= 3:
+        reasons.append(f"⚠️ Frequent 30-day payment delays ({dpd_30} times) — moderate delinquency pattern.")
+    elif dpd_30 >= 1:
+        reasons.append(f"ℹ️ {dpd_30} instance(s) of 30-day delay — minor delinquency on record.")
  
-    dpd_30 = customer_data.get('num_times_30p_dpd', 0)
-    if dpd_30 >= 3:
-        reasons.append(f"⚠️ Frequent 30‑day delays ({dpd_30} times).")
+    if recent_deliq and dpd_90 == 0:
+        reasons.append("⚠️ Recent delinquency detected in last 6 months.")
  
-    recent_deliq = customer_data.get('recent_deliq_flag', 0)
-    if recent_deliq:
-        reasons.append("❌ Recent delinquency detected (last 6 months).")
- 
-    inquiries = customer_data.get('enq_L3m', 0)
-    if inquiries > 5:
-        reasons.append(f"⚠️ High recent credit inquiries ({inquiries} in 3 months).")
-    elif inquiries > 3:
-        reasons.append(f"ℹ️ Moderate recent inquiries ({inquiries} in 3 months).")
- 
-    age = customer_data.get('AGE', 35)
-    if age < 24:
-        reasons.append("ℹ️ Young credit history (age < 24).")
- 
-    written_off = customer_data.get('written_off_count', 0)
+    # ── 4. Written-off / settled accounts ────────────────────────────────────
+    written_off = int(customer_data.get('written_off_count', customer_data.get('num_lss', 0)) or 0)
+    settled     = int(customer_data.get('settled_count', 0) or 0)
     if written_off > 0:
-        reasons.append(f"❌ {written_off} written‑off account(s) in bureau.")
- 
-    settled = customer_data.get('settled_count', 0)
+        reasons.append(f"❌ {written_off} written-off account(s) in bureau — significant credit impairment.")
     if settled > 0:
-        reasons.append(f"⚠️ {settled} settled account(s) – partial write‑off.")
+        reasons.append(f"⚠️ {settled} settled account(s) — indicates prior repayment stress.")
  
-    # Account quality
-    account_score = customer_data.get('account_quality_score', 100)
-    if account_score < 50:
-        reasons.append("❌ Low account quality score (high proportion of sub‑standard accounts).")
+    # ── 5. FOIR / affordability ───────────────────────────────────────────────
+    income = float(customer_data.get('NETMONTHLYINCOME', customer_data.get('avg_salary_6m', 0)) or 0)
+    emi    = float(customer_data.get('total_emi_monthly', customer_data.get('existing_emi', 0)) or 0)
+    if income > 0 and emi > 0:
+        foir = (emi / income) * 100
+        if foir > 50:
+            reasons.append(f"❌ EMI burden elevated (FOIR: {foir:.1f}% — exceeds 50% policy limit).")
+        elif foir > 40:
+            reasons.append(f"⚠️ EMI burden elevated (FOIR: {foir:.1f}% — within limit but requires review).")
+        elif foir <= 30:
+            reasons.append(f"✅ Low EMI burden (FOIR: {foir:.1f}%) — strong repayment capacity.")
  
-    # Combined risk score insight
-    if combined_risk_score >= 650:
-        reasons.append(f"📊 High combined risk score ({combined_risk_score}/1000).")
-    elif combined_risk_score <= 200:
-        reasons.append(f"📊 Low combined risk score ({combined_risk_score}/1000) — strong profile.")
+    # ── 6. Credit utilization ─────────────────────────────────────────────────
+    cc_util = float(customer_data.get('CC_utilization', 0) or 0)
+    # OCR stores as 0.0-1.0; manual entry stores as 0-100 — normalise
+    if cc_util > 1:
+        cc_util = cc_util / 100
+    if cc_util > 0.75:
+        reasons.append(f"⚠️ High credit card utilization ({cc_util*100:.0f}%) — indicates credit dependency.")
+    elif cc_util > 0.5:
+        reasons.append(f"ℹ️ Moderate credit card utilization ({cc_util*100:.0f}%).")
  
-    # Remove duplicates (if any) and limit to top 4
-    seen = set()
-    unique_reasons = []
+    pl_util = float(customer_data.get('PL_utilization', 0) or 0)
+    if pl_util > 1:
+        pl_util = pl_util / 100
+    if pl_util > 0.75:
+        reasons.append(f"⚠️ High personal loan utilization ({pl_util*100:.0f}%).")
+ 
+    # ── 7. Inquiry pattern ────────────────────────────────────────────────────
+    inquiries = int(customer_data.get('enq_L3m', 0) or 0)
+    if inquiries > 5:
+        reasons.append(f"⚠️ {inquiries} credit inquiries in last 3 months — credit-hungry behaviour.")
+    elif inquiries > 3:
+        reasons.append(f"ℹ️ {inquiries} inquiries in last 3 months — moderate credit-seeking activity.")
+ 
+    # ── 8. Account quality ────────────────────────────────────────────────────
+    account_score = int(customer_data.get('account_quality_score', 100) or 100)
+    if account_score < 40:
+        reasons.append(f"❌ Low account quality score ({account_score}/100) — high proportion of sub-standard accounts.")
+    elif account_score < 70 and stage2_tier in ['P3', 'P4']:
+        reasons.append(f"⚠️ Account quality score {account_score}/100 — elevated sub-standard account ratio.")
+ 
+    # ── 9. Combined risk score context ────────────────────────────────────────
+    if combined_risk_score >= 700:
+        reasons.append(f"📊 High combined risk score ({combined_risk_score}/1000) — CIBIL deep-dive confirms elevated risk.")
+    elif combined_risk_score <= 150:
+        reasons.append(f"📊 Low combined risk score ({combined_risk_score}/1000) — strong overall profile.")
+ 
+    # ── Deduplicate and return top 6 ─────────────────────────────────────────
+    seen, unique = set(), []
     for r in reasons:
         if r not in seen:
             seen.add(r)
-            unique_reasons.append(r)
-    return unique_reasons[:4]
+            unique.append(r)
+    return unique[:6]
  
  
 # =============================================================================
@@ -856,8 +887,19 @@ def prepare_stage2_input(customer_data, stage2_features, feature_encoders):
     # Special calculated fields (not directly in input but used elsewhere)
     mapping['dpd_90_count_6m'] = customer_data.get('dpd_90_count_6m', 0)
     mapping['dpd_30_count_6m'] = customer_data.get('dpd_30_count_6m', 0)
-    mapping['written_off_count'] = customer_data.get('written_off_count', 0)
+    mapping['written_off_count'] = customer_data.get('written_off_count',
+        mapping.get('num_lss', 0))  # num_lss = loss accounts = written-off proxy
     mapping['settled_count'] = customer_data.get('settled_count', 0)
+ 
+    # FIX M1: account_quality_score — was hardcoded to 50 (default).
+    # Manual entry path always got 50, so "Low account quality" reason (score<50)
+    # never fired. Compute from actual delinquency data same as ocr_extractor.py.
+    _num_lss = mapping.get('num_lss', 0)
+    _num_sub = mapping.get('num_sub', 0)
+    _dpd90   = int(round(float(mapping['dpd_90_count_6m'] or 0)))
+    _dpd30   = int(round(float(mapping['dpd_30_count_6m'] or 0)))
+    mapping['account_quality_score'] = max(0,
+        100 - _num_lss*20 - mapping['settled_count']*10 - _dpd90*15 - _dpd30*5)
  
     # FIX S-2: recent_deliq_flag is in numeric_defaults (defaults to 0), but it must be
     # derived from dpd_90_count_6m — not left at 0 when delinquency is present.
@@ -936,11 +978,19 @@ def apply_two_stage_decision_matrix(stage1_decision, stage2_tier,
     # This is deliberate policy, not an accidental omission.
     if stage2_tier in ['P1', 'P2']:
         final = "APPROVE"
-        reason_prefix = f"CIBIL tier {stage2_tier} indicates good credit quality."
+        tier_labels = {
+            'P1': 'Premium tier — excellent credit quality. Lowest interest rate band applies.',
+            'P2': 'Standard tier — good credit quality. Standard interest rate band applies.',
+        }
+        reason_prefix = tier_labels.get(stage2_tier, f"CIBIL tier {stage2_tier} indicates good credit quality.")
         interest = tier_rates.get(stage2_tier, '10.0% – 12.0%')
     else:  # P3, P4
         final = "REJECT"
-        reason_prefix = f"CIBIL tier {stage2_tier} indicates elevated default risk."
+        tier_labels = {
+            'P3': 'Subprime tier — elevated default risk. Application declined; applicant may reapply after improving CIBIL profile.',
+            'P4': 'High-risk tier — significant delinquency history. Application declined.',
+        }
+        reason_prefix = tier_labels.get(stage2_tier, f"CIBIL tier {stage2_tier} indicates elevated default risk.")
         interest = "N/A"
  
     # Optional override: extremely low combined risk score could downgrade P2?
@@ -988,33 +1038,48 @@ def make_two_stage_decision(customer_data, stage1_function):
             'affordability_data': stage1_result.get('affordability_data', {})
         }
  
-    # If Stage 2 model not loaded, fallback to Stage 1 decision (binary mapped)
+    # If Stage 2 model not loaded, do NOT silently convert REVIEW → REJECT.
+    # REVIEW means "borderline — needs deeper CIBIL check". If Stage 2 is
+    # unavailable, we cannot make that deeper check, so we must tell the user.
+    # Returning REVIEW here lets the UI show a clear "Stage 2 unavailable" message
+    # instead of issuing a silent wrong rejection.
     if not STAGE2_ASSETS['loaded']:
-        # Map Stage 1 REVIEW to APPROVE? Safer to REJECT if not sure.
+        model_err = STAGE2_ASSETS.get('error', 'Stage 2 model not found.')
         if stage1_decision == "APPROVE":
-            final = "APPROVE"
-            reason = stage1_result['reason'] + " (Stage 2 model not loaded)"
+            final  = "APPROVE"
+            reason = stage1_result['reason'] + " (Stage 2 model not loaded — approved on Stage 1 only)"
             interest = "10.0% – 12.0%"
+        elif stage1_decision == "REVIEW":
+            # Cannot resolve REVIEW without Stage 2 — surface as REVIEW so user acts
+            final  = "REVIEW"
+            reason = (f"⚠️ Stage 2 model unavailable ({model_err}). "
+                      "Application requires manual underwriter review — "
+                      "cannot auto-approve or auto-reject a borderline Stage 1 REVIEW "
+                      "without the CIBIL deep-dive model.")
+            interest = "N/A — Requires Manual Review"
         else:
-            final = "REJECT"
+            final  = "REJECT"
             reason = stage1_result['reason'] + " (Stage 2 model not loaded)"
             interest = "N/A"
  
         return {
             'final_decision': final,
-            'tier': 'N/A (Stage 2 not available)',
+            'tier': 'N/A',
             'interest_rate_range': interest,
             'stage1_decision': stage1_decision,
-            'stage2_tier': None,
-            'stage2_confidence': None,
-            'combined_risk_score': stage1_risk_score,
+            'stage2_tier': 'N/A',
+            'stage2_confidence': 0,
+            # FIX B: scale the 0-100 Stage 1 score to 0-1000 so the label is correct
+            'combined_risk_score': stage1_risk_score * 10,
+            'stage1_risk_score': stage1_risk_score,
             'pd_percentage': stage1_pd,
             'reason': reason,
-            'stage2_reason_codes': [],
+            'stage2_reason_codes': [f"⚠️ Stage 2 model unavailable: {model_err}"],
             'stage1_details': stage1_result,
             'stage2_used': False,
+            'stage2_error': model_err,
             'decision': final,
-            'risk_score': stage1_risk_score,
+            'risk_score': stage1_risk_score * 10,
             'confidence': stage1_confidence,
             'class_probs': stage1_result.get('class_probs', {}),
             'policy_checks': stage1_result.get('policy_checks', {}),
@@ -1044,24 +1109,38 @@ def make_two_stage_decision(customer_data, stage1_function):
         }
  
     except Exception as e:
-        # Stage 2 failed – fallback to Stage 1 (binary mapped)
-        fallback_final = "APPROVE" if stage1_decision == "APPROVE" else "REJECT"
+        # Stage 2 prediction failed — REVIEW must not silently become REJECT
+        err_msg = str(e)
+        if stage1_decision == "APPROVE":
+            fallback_final = "APPROVE"
+            fb_interest    = "10.0% – 12.0%"
+            fb_reason      = f'{stage1_result["reason"]} (Stage 2 failed: {err_msg})'
+        elif stage1_decision == "REVIEW":
+            fallback_final = "REVIEW"
+            fb_interest    = "N/A — Requires Manual Review"
+            fb_reason      = (f"⚠️ Stage 2 model error: {err_msg}. "
+                              "Application requires manual underwriter review.")
+        else:
+            fallback_final = "REJECT"
+            fb_interest    = "N/A"
+            fb_reason      = f'{stage1_result["reason"]} (Stage 2 failed: {err_msg})'
         return {
             'final_decision': fallback_final,
-            'tier': 'N/A (Stage 2 error)',
-            'interest_rate_range': '10.0% – 12.0%' if fallback_final == "APPROVE" else 'N/A',
+            'tier': 'N/A',
+            'interest_rate_range': fb_interest,
             'stage1_decision': stage1_decision,
-            'stage2_tier': None,
-            'stage2_confidence': None,
-            'combined_risk_score': stage1_risk_score,
+            'stage2_tier': 'N/A',
+            'stage2_confidence': 0,
+            'combined_risk_score': stage1_risk_score * 10,
+            'stage1_risk_score': stage1_risk_score,
             'pd_percentage': stage1_pd,
-            'reason': f'{stage1_result["reason"]} (Stage 2 failed: {str(e)})',
-            'stage2_reason_codes': [],
+            'reason': fb_reason,
+            'stage2_reason_codes': [f"⚠️ Stage 2 error: {err_msg}"],
             'stage1_details': stage1_result,
             'stage2_used': False,
-            'stage2_error': str(e),
+            'stage2_error': err_msg,
             'decision': fallback_final,
-            'risk_score': stage1_risk_score,
+            'risk_score': stage1_risk_score * 10,
             'confidence': stage1_confidence,
             'class_probs': stage1_result.get('class_probs', {}),
             'policy_checks': stage1_result.get('policy_checks', {}),
@@ -1096,8 +1175,11 @@ def make_two_stage_decision(customer_data, stage1_function):
         combined_risk_score=combined_risk_score
     )
  
-    # Combine reason prefix with stage2 reasons for main reason string
-    full_reason = reason_prefix + " " + " ".join(stage2_reasons[:2])
+    # FIX M2: full_reason is now the tier prefix only — short and clean for the header.
+    # stage2_reason_codes carries ALL reasons (up to 4) and is rendered as a numbered
+    # list in display_stage2_results. Previous code jammed [:2] into the header string,
+    # discarding reasons 3 and 4 and producing unreadable run-on text.
+    full_reason = reason_prefix
  
     return {
         'final_decision': final_decision,
