@@ -1164,13 +1164,12 @@
 
 
 
-
-# ocr_extractor.py — CIBIL PDF Extraction Engine v5.1
+# ocr_extractor.py — CIBIL PDF Extraction Engine v5.2
 # ======================================================
 # Hybrid extractor:
 #   - Uses pdfplumber for digital PDFs (tables for DPD, text for income/util).
 #   - Falls back to Tesseract OCR for scanned documents.
-#   - Targeted OCR for the credit score image.
+#   - Targeted OCR for the credit score image (if needed).
 #   - All flags are inferred internally.
 
 import re
