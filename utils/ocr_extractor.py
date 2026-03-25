@@ -1162,8 +1162,6 @@
 
 
 
-
-
 # ocr_extractor.py  —  CIBIL PDF Extraction Engine  v5.0
 # =======================================================
 # Hybrid extraction: pdfplumber (text/tables) for digital PDFs,
