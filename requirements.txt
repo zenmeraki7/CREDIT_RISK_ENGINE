@@ -18,3 +18,5 @@ pdf2image>=1.16.3
 # Use headless build — avoids libGL errors on Streamlit Cloud (no display)
 opencv-python-headless>=4.8.0
 Pillow>=10.0.0
+
+pdfplumber>=0.10.0   
