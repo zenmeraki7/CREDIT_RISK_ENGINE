@@ -1165,15 +1165,13 @@
 
 
 
-
-# ocr_extractor.py — CIBIL PDF Extraction Engine v5.0
+# ocr_extractor.py — CIBIL PDF Extraction Engine v5.1
 # ======================================================
-# Professional, production-ready hybrid extractor:
-#   - Uses pdfplumber for digital PDFs (fast, accurate).
+# Hybrid extractor:
+#   - Uses pdfplumber for digital PDFs (tables for DPD, text for income/util).
 #   - Falls back to Tesseract OCR for scanned documents.
-#   - Includes targeted OCR for the credit score image.
-#   - All flags (payment discipline, etc.) are inferred internally.
-#   - No external imports required besides standard libraries.
+#   - Targeted OCR for the credit score image.
+#   - All flags are inferred internally.
 
 import re
 from datetime import datetime
@@ -1239,7 +1237,7 @@ def _fix_spaced_digits(text: str) -> str:
     return re.sub(r'\b(\d)\s(\d)\s(\d)\b', r'\1\2\3', text)
 
 def _split_merged_words(text: str) -> str:
-    """Fix common OCR word merges (e.g., 'PersonalLoan' → 'Personal Loan')."""
+    """Fix common OCR word merges."""
     text = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', text)
     replacements = {
         'CREDITINFORMATIONREPORT': 'CREDIT INFORMATION REPORT',
@@ -1552,6 +1550,18 @@ def _extract_income(txt: str) -> int:
                     pass
     return 50_000
 
+def _extract_cc_util_from_text(txt: str) -> float:
+    """Extract CC utilisation percentage from text."""
+    # Look for "CC Utilization %" and capture the number
+    m = re.search(r'CC\s+Utilization\s+%\s*(\d+)%', txt, re.IGNORECASE)
+    if m:
+        return int(m.group(1)) / 100.0
+    # Fallback: search for "CC Utilization" with possible line break
+    m = re.search(r'CC\s+Utilization\s+%?\s*(\d+)%', txt, re.IGNORECASE)
+    if m:
+        return int(m.group(1)) / 100.0
+    return 0.0
+
 def _parse_enquiries(txt: str) -> dict:
     """Extract enquiry details from text."""
     enq_section = ""
@@ -1750,32 +1760,6 @@ def _parse_accounts_ocr(txt: str) -> dict:
 # DIGITAL PDF PARSERS (using pdfplumber)
 # ---------------------------------------------------------------------------
 
-def _parse_employment_table(rows: List[List[str]]) -> Dict[str, Any]:
-    """Extract employment details from a table extracted by pdfplumber."""
-    emp_type = 'Salaried'
-    net_income = None
-    tenure = None
-    for row in rows:
-        if len(row) < 2:
-            continue
-        key = row[0].strip().lower()
-        val = row[1].strip()
-        if 'employment type' in key:
-            emp_type = val
-        elif 'net monthly income' in key:
-            m = re.search(r'([\d,]+)', val)
-            if m:
-                net_income = int(m.group(1).replace(',', ''))
-        elif 'with current employer' in key:
-            m = re.search(r'(\d+)\s*months?', val, re.IGNORECASE)
-            if m:
-                tenure = int(m.group(1))
-    return {
-        'employment_type': emp_type,
-        'NETMONTHLYINCOME': net_income,
-        'Time_With_Curr_Empr': tenure,
-    }
-
 def _parse_accounts_table(rows: List[List[str]]) -> Dict[str, Any]:
     """Parse the Account Details table from pdfplumber."""
     dpd_30 = dpd_60 = dpd_90 = 0
@@ -1821,26 +1805,6 @@ def _parse_accounts_table(rows: List[List[str]]) -> Dict[str, Any]:
         'pct_active': active / max(total_accounts, 1),
     }
 
-def _parse_credit_util_section(txt: str) -> Dict[str, Any]:
-    """Extract credit utilisation from text (CC%, PL%, etc.)."""
-    cc_util = None
-    pl_util = None
-    max_unsec = None
-    m = re.search(r'CC Utilization %\s*(\d+)%', txt, re.IGNORECASE)
-    if m:
-        cc_util = int(m.group(1))
-    m = re.search(r'PL Utilization %\s*(\d+)%', txt, re.IGNORECASE)
-    if m:
-        pl_util = int(m.group(1))
-    m = re.search(r'Max Unsecured Exposure %\s*(\d+)%', txt, re.IGNORECASE)
-    if m:
-        max_unsec = int(m.group(1))
-    return {
-        'CC_utilization': cc_util / 100.0 if cc_util else 0.0,
-        'PL_utilization': pl_util / 100.0 if pl_util else 0.0,
-        'max_unsec_exposure_inPct': max_unsec if max_unsec else 0,
-    }
-
 # ---------------------------------------------------------------------------
 # MAIN EXTRACTION FUNCTION
 # ---------------------------------------------------------------------------
@@ -1862,34 +1826,84 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
             with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
                 full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
                 if full_text.strip():
-                    # Extract tables
+                    # Extract tables (only needed for DPD counts)
                     tables = []
                     for page in pdf.pages:
                         page_tables = page.extract_tables()
                         if page_tables:
                             tables.extend(page_tables)
 
-                    emp_data = {}
                     account_rows = []
                     for tbl in tables:
-                        # Employment table (first row contains "Employment Type")
-                        if tbl and len(tbl[0]) >= 2 and 'Employment Type' in str(tbl[0][0]):
-                            emp_data = _parse_employment_table(tbl)
                         # Account details table
-                        elif tbl and len(tbl[0]) >= 7 and 'Lender' in str(tbl[0][0]):
+                        if tbl and len(tbl[0]) >= 7 and 'Lender' in str(tbl[0][0]):
                             account_rows = tbl[1:]  # skip header
+                            break
 
                     acc_data = _parse_accounts_table(account_rows) if account_rows else {}
-                    credit_util = _parse_credit_util_section(full_text)
                     enq_data = _parse_enquiries(full_text)
 
-                    # Combine
+                    # Use text-based extraction for fields that may not be in tables
+                    monthly_income = _extract_income(full_text)
+                    cc_util = _extract_cc_util_from_text(full_text)
+                    credit_score = _extract_credit_score_from_text(full_text)
+
+                    # Try targeted image OCR for score (more reliable)
+                    try:
+                        from pdf2image import convert_from_bytes
+                        images = convert_from_bytes(pdf_bytes, dpi=150, first_page=1, last_page=1)
+                        if images:
+                            score_img = _extract_credit_score_from_image(images[0])
+                            if score_img:
+                                credit_score = score_img
+                    except Exception:
+                        pass
+
+                    # Employment type from text (fallback if not in table)
+                    employment_type = 'Salaried'
+                    if re.search(r'self.?employed|self\s+employ|proprietor|freelance', full_text, re.IGNORECASE):
+                        employment_type = 'Self-Employed'
+                    elif re.search(r'\bbusiness\b|\bfirm\b|\bpartner(ship)?\b', full_text, re.IGNORECASE):
+                        employment_type = 'Business'
+
+                    # Employment tenure from text
+                    employment_tenure_months = 24
+                    m = re.search(
+                        r'(?:with\s+current\s+employer|employment\s+tenure|'
+                        r'employed\s+(?:since|for))[^\d]{0,20}(\d+)\s*(?:year|yr)',
+                        full_text, re.IGNORECASE)
+                    if m:
+                        employment_tenure_months = int(m.group(1)) * 12
+                    else:
+                        m = re.search(
+                            r'(?:with\s+current\s+employer|tenure)[^\d]{0,20}(\d+)\s*(?:month|mth)',
+                            full_text, re.IGNORECASE)
+                        if m:
+                            employment_tenure_months = int(m.group(1))
+
+                    # Existing EMI
+                    existing_emi = 0
+                    for emi_pat in [
+                        r'(?:total\s+emi|existing\s+emi|current\s+emi|monthly\s+emi)'
+                        r'[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)',
+                        r'emi\s+(?:outflow|obligation)[^\d]{0,20}([0-9,]+)',
+                        r'total\s+(?:monthly\s+)?obligation[\s:\-₹]*([0-9,]+)',
+                    ]:
+                        mm = re.search(emi_pat, full_text, re.IGNORECASE)
+                        if mm:
+                            v = int(mm.group(1).replace(',', ''))
+                            if 500 < v < 500_000:
+                                existing_emi = v
+                                break
+
+                    # Combine all data
                     result = {
                         'success': True,
                         'extraction_method': 'pdfplumber+text',
-                        'NETMONTHLYINCOME': emp_data.get('NETMONTHLYINCOME', 50000),
-                        'employment_type': emp_data.get('employment_type', 'Salaried'),
-                        'Time_With_Curr_Empr': emp_data.get('Time_With_Curr_Empr', 24),
+                        'Credit_Score': credit_score,
+                        'NETMONTHLYINCOME': monthly_income,
+                        'employment_type': employment_type,
+                        'Time_With_Curr_Empr': employment_tenure_months,
                         'dpd_30_count_6m': acc_data.get('dpd_30_count', 0),
                         'dpd_60_count_6m': acc_data.get('dpd_60_count', 0),
                         'dpd_90_count_6m': acc_data.get('dpd_90_count', 0),
@@ -1899,9 +1913,8 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                         'sub_std': acc_data.get('sub_std', 0),
                         'total_accounts': acc_data.get('total_accounts', 0),
                         'pct_active': acc_data.get('pct_active', 0),
-                        'CC_utilization': credit_util.get('CC_utilization', 0),
-                        'PL_utilization': credit_util.get('PL_utilization', 0),
-                        'max_unsec_exposure_inPct': credit_util.get('max_unsec_exposure_inPct', 0),
+                        'CC_utilization': cc_util,
+                        'existing_emi': existing_emi,
                         'tot_enq': enq_data['tot_enq'],
                         'enq_L3m': enq_data['enq_L3m'],
                         'enq_L6m': enq_data['enq_L6m'],
@@ -1917,35 +1930,21 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                         'first_prod_enq2': enq_data['first_prod_enq2'],
                     }
 
-                    # Try to extract credit score from first page image
-                    try:
-                        from pdf2image import convert_from_bytes
-                        images = convert_from_bytes(pdf_bytes, dpi=150, first_page=1, last_page=1)
-                        if images:
-                            score = _extract_credit_score_from_image(images[0])
-                            if score:
-                                result['Credit_Score'] = score
-                    except Exception:
-                        pass
-
-                    if 'Credit_Score' not in result:
-                        result['Credit_Score'] = _extract_credit_score_from_text(full_text)
-
-                    # Add derived fields
+                    # Derived fields
                     result['num_times_30p_dpd'] = (result.get('dpd_30_count_6m', 0) +
-                                                    result.get('dpd_60_count_6m', 0) +
-                                                    result.get('dpd_90_count_6m', 0))
+                                                   result.get('dpd_60_count_6m', 0) +
+                                                   result.get('dpd_90_count_6m', 0))
                     result['num_times_60p_dpd'] = result.get('dpd_60_count_6m', 0) + result.get('dpd_90_count_6m', 0)
-                    result['AGE'] = 35  # will be overridden if extracted later
+                    result['AGE'] = 35  # placeholder, will be filled later if needed
                     result['GENDER'] = 'U'
                     result['MARITALSTATUS'] = 'Unknown'
                     result['EDUCATION'] = 'GRADUATE'
-                    result['AMT_INCOME_TOTAL'] = result['NETMONTHLYINCOME'] * 12
+                    result['AMT_INCOME_TOTAL'] = monthly_income * 12
                     result['_surplus_proxy'] = _infer_surplus_from_cibil(
-                        result.get('Credit_Score', 720),
-                        result.get('num_times_60p_dpd', 0),
-                        result.get('num_times_30p_dpd', 0),
-                        result.get('NETMONTHLYINCOME', 50000),
+                        credit_score,
+                        result['num_times_60p_dpd'],
+                        result['num_times_30p_dpd'],
+                        monthly_income,
                         result.get('dpd_90_count_6m', 0)
                     )
                     return result
