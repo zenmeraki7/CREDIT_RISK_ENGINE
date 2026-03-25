@@ -1167,16 +1167,20 @@
 
 
 
-# ocr_extractor.py — CIBIL PDF Extraction Engine v5.3
+
+
+# ocr_extractor.py — CIBIL PDF Extraction Engine v5.4
 # ======================================================
 # Hybrid extractor with robust fallbacks for income and CC utilisation.
 # Uses pdfplumber for digital PDFs, falls back to OCR with enhanced patterns.
+# Includes debug logging for troubleshooting.
 
 import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from io import BytesIO
 import traceback
+import os
 
 # ---------------------------------------------------------------------------
 # OPTIONAL DEPENDENCIES (graceful fallback)
@@ -1506,67 +1510,63 @@ def _extract_credit_score_from_image(pil_image) -> Optional[int]:
 def _extract_income(txt: str) -> int:
     """
     Extract net monthly income from text.
-    Uses multiple patterns, including one that tolerates line breaks and OCR errors.
+    Uses a direct pattern: look for 'Net Monthly Income' and capture the number.
+    Handles line breaks and common OCR errors.
     """
-    section = txt
-    # Try to isolate primary applicant section
+    # First, try to find the exact phrase with the number on the same or next line
+    # Pattern: "Net Monthly Income" followed by anything up to a number (with optional Rs.)
     m = re.search(
-        r'(?:primary\s+applicant|applicant\s+details?)(.*?)'
-        r'(?:co[-\s]?applicant|guarantor|$)',
-        txt, re.IGNORECASE | re.DOTALL)
+        r'net\s+monthly\s+income[^\d]*?([\d,]+)',
+        txt, re.IGNORECASE | re.DOTALL
+    )
     if m:
-        section = m.group(1)
+        try:
+            val = int(m.group(1).replace(',', ''))
+            if 5_000 < val < 5_000_000:
+                return val
+        except:
+            pass
 
-    def _clean(t):
-        return re.sub(r'(\d)\s(\d{3})\b', r'\1\2', t)
-
-    def _rupees(s):      return float(s.replace(',', ''))
-    def _annual(s):      return float(s.replace(',', '')) / 12
-    def _lakhs_pm(s):    return float(s.replace(',', '')) * 100_000
-    def _lakhs_pa(s):    return float(s.replace(',', '')) * 100_000 / 12
-
+    # Fallback: more comprehensive patterns (including those with Rs.)
     patterns = [
-        # Direct monthly rupee patterns
-        (r'net\s+monthly\s+income[\s:\-₹Rs\.]*([0-9,]+)',               _rupees),
-        (r'monthly\s+(?:take.?home|salary|income)[\s:\-₹Rs\.]*([0-9,]+)', _rupees),
-        (r'(?:salary|income)\s+per\s+month[\s:\-₹Rs\.]*([0-9,]+)',      _rupees),
-        (r'take\s+home[\s:\-₹Rs\.]*([0-9,]+)',                          _rupees),
-        (r'₹\s*([0-9,]+)\s*/?\s*(?:per\s+month|p\.?m\.?|monthly)',     _rupees),
-        (r'([0-9,]+)\s*(?:per\s+month|p\.?m\.?)',                       _rupees),
-        # Multiline: "Net Monthly Income" on one line, "Rs. 68,000" on next
-        (r'net\s+monthly[\s\S]{0,50}?Rs\.?\s*([0-9,]+)',                _rupees),
-        (r'(?:income|salary|earning)[^\n]{0,100}\nRs\.?\s*([0-9,]+)',   _rupees),
-        (r'Rs\.?\s*([0-9,]+)\s*\n(?:income|salary|earning)',            _rupees),
-        # Lakhs per month
+        (r'net\s+monthly\s+income[\s:\-₹Rs\.]*([0-9,]+)',                None),
+        (r'monthly\s+(?:take.?home|salary|income)[\s:\-₹Rs\.]*([0-9,]+)', None),
+        (r'(?:salary|income)\s+per\s+month[\s:\-₹Rs\.]*([0-9,]+)',       None),
+        (r'₹\s*([0-9,]+)\s*/?\s*(?:per\s+month|p\.?m\.?|monthly)',      None),
+        (r'([0-9,]+)\s*(?:per\s+month|p\.?m\.?)',                        None),
+        (r'net\s+monthly[\s\S]{0,50}?Rs\.?\s*([0-9,]+)',                 None),
+        (r'Rs\.?\s*([0-9,]+)\s*\n(?:income|salary|earning)',             None),
         (r'([0-9]+\.?[0-9]*)\s*(?:L|lakh|lakhs?)\s*'
-         r'(?:p\.?m\.?|per\s+month|monthly)',                            _lakhs_pm),
-        # Annual rupees → monthly
-        (r'(?:annual|yearly)\s+income[\s:\-₹Rs\.]*([0-9,]+)',           _annual),
-        (r'([0-9,]+)\s*p\.?a\.?',                                       _annual),
-        # Lakhs per annum → monthly
+         r'(?:p\.?m\.?|per\s+month|monthly)',                             None),
+        (r'(?:annual|yearly)\s+income[\s:\-₹Rs\.]*([0-9,]+)',             None),
+        (r'([0-9,]+)\s*p\.?a\.?',                                         None),
         (r'([0-9]+\.?[0-9]*)\s*(?:L|lakh|lakhs?)\s*'
-         r'(?:p\.?a\.?|per\s+annum|annually)',                           _lakhs_pa),
-        # Total income (fallback)
-        (r'(?:total|gross)\s+income[\s:\-₹Rs\.]*([0-9,]+)',             _rupees),
-        # Look for income in the account summary (e.g., "Monthly Income: 68,000")
-        (r'monthly\s+income[\s:\-₹Rs\.]*([0-9,]+)',                     _rupees),
+         r'(?:p\.?a\.?|per\s+annum|annually)',                             None),
     ]
-    for src in (_clean(section), _clean(txt)):
-        for pat, transform in patterns:
-            m2 = re.search(pat, src, re.IGNORECASE)
-            if m2:
-                try:
-                    monthly = transform(m2.group(1))
-                    if 5_000 < monthly < 5_000_000:
-                        return int(monthly)
-                except Exception:
-                    pass
+    for pat, _ in patterns:
+        m2 = re.search(pat, txt, re.IGNORECASE | re.DOTALL)
+        if m2:
+            try:
+                s = m2.group(1).replace(',', '').replace(' ', '')
+                # Check if it's lakhs (contains decimal)
+                if '.' in s:
+                    val = float(s) * 100_000
+                else:
+                    val = int(s)
+                # Determine if it's monthly or annual based on pattern
+                if 'annual' in pat or 'p\.?a\.?' in pat or 'annum' in pat:
+                    val = val / 12
+                if 5_000 < val < 5_000_000:
+                    return int(val)
+            except:
+                pass
+    # If nothing found, return default
     return 50_000
 
 def _extract_cc_util_from_text(txt: str) -> float:
     """
     Extract CC utilisation percentage from text.
-    Looks for "CC Utilization %" and captures the number, tolerating line breaks.
+    Looks for "CC Utilization %" and captures the number.
     """
     # Try to find "CC Utilization %" and then the number
     m = re.search(r'CC\s+Utilization\s+%\s*(\d+)%', txt, re.IGNORECASE)
@@ -1578,6 +1578,10 @@ def _extract_cc_util_from_text(txt: str) -> float:
         return int(m.group(1)) / 100.0
     # OCR may output "CC Utilization % 38%" with spaces
     m = re.search(r'CC\s+Utilization\s+%\s*(\d+)', txt, re.IGNORECASE)
+    if m:
+        return int(m.group(1)) / 100.0
+    # Look for "CC Utilization" and then the number on next line
+    m = re.search(r'CC\s+Utilization\s+%\s*\n\s*(\d+)', txt, re.IGNORECASE)
     if m:
         return int(m.group(1)) / 100.0
     return 0.0
