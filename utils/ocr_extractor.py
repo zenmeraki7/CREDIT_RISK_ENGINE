@@ -1174,6 +1174,7 @@ import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from io import BytesIO
+import traceback
 
 # ---------------------------------------------------------------------------
 # OPTIONAL OCR DEPENDENCIES
@@ -1196,7 +1197,7 @@ except ImportError:
     PDFPLUMBER_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
-# HELPER FUNCTIONS (reused from v4.0, with minor enhancements)
+# HELPER FUNCTIONS (reused from v4.0)
 # ---------------------------------------------------------------------------
 
 def _re_int(pattern, text, default, lo=None, hi=None):
@@ -1296,7 +1297,6 @@ def _preprocess_page(pil_image, dpi=300):
         gray = clahe.apply(gray)
     except Exception:
         pass
-    # Deskew (simplified, keep as before)
     try:
         coords = np.column_stack(np.where(gray < 200))
         if len(coords) > 100:
@@ -1326,7 +1326,6 @@ def _ocr_region(pil_image, region_box, config='--psm 11 -l eng'):
     if not OCR_AVAILABLE:
         return ''
     cropped = pil_image.crop(region_box)
-    # Enhance contrast
     cropped = cropped.convert('L')
     binary = _preprocess_page(cropped)
     text = pytesseract.image_to_string(binary, config=config)
@@ -1375,10 +1374,8 @@ def _ocr_pdf(pdf_bytes, low_conf_threshold=60.0):
 # ---------------------------------------------------------------------------
 
 def _extract_credit_score_from_text(txt):
-    """Extract score from text (fallback). Same as before but with range masking."""
-    # Mask score range descriptions
+    """Extract score from text (fallback)."""
     txt = re.sub(r'score\s+range\s+\d{3}\s*[-–]\s*\d{3}[^.]*', '', txt, flags=re.IGNORECASE)
-    # Patterns
     patterns = [
         r'(?:cibil|experian|equifax|highmark|crif|bureau)\s*'
         r'(?:trans\s*union\s*)?score\s*[:\-\(]?\s*(\d{3})',
@@ -1395,7 +1392,6 @@ def _extract_credit_score_from_text(txt):
             v = int(m.group(1))
             if 300 <= v <= 900:
                 return v
-    # Fallback: find standalone 3‑digit numbers
     candidates = [int(x) for x in re.findall(r'(?<![,\d])(\d{3})(?![,\d])', txt)
                   if 300 <= int(x) <= 900]
     if candidates:
@@ -1415,7 +1411,6 @@ def _extract_credit_score_from_image(pil_image):
     # Crop to top‑right quarter (adjust coordinates based on typical CIBIL layout)
     crop_box = (int(w * 0.7), 0, w, int(h * 0.2))
     score_text = _ocr_region(pil_image, crop_box, config='--psm 11 -l eng')
-    # Look for a 3‑digit number
     m = re.search(r'\b(\d{3})\b', score_text)
     if m:
         v = int(m.group(1))
@@ -1424,9 +1419,7 @@ def _extract_credit_score_from_image(pil_image):
     return None
 
 def _extract_income(txt):
-    """Extract monthly income from text (same as before)."""
-    # Use original patterns; they work well with clean text.
-    # Keep the same code as in v4.0 (reproduced here for brevity)
+    """Extract monthly income from text."""
     section = txt
     m = re.search(
         r'(?:primary\s+applicant|applicant\s+details?)(.*?)'
@@ -1474,8 +1467,6 @@ def _extract_income(txt):
     return 50_000
 
 def _parse_enquiries(txt):
-    """Parse enquiries from text (same as v4.0)."""
-    # Original code works fine
     enq_section = ""
     m = re.search(
         r'enquir(?:y|ies)\s+details?(.*?)(?:account\s+summary|$)',
@@ -1534,23 +1525,146 @@ def _parse_enquiries(txt):
         last_prod_enq2=last_prod, first_prod_enq2=first_prod,
     )
 
-def _parse_accounts_from_text(txt):
-    """Original account parser for OCR‑based extraction (v4.0)."""
-    # We keep the existing code for the fallback path.
-    # It's long; we'll just reference the same logic as before.
-    # For brevity, we'll assume it's present (the original file had it).
-    # In the final code we'll include it.
-    pass
+def _parse_accounts_ocr(txt):
+    """
+    Original account parser for OCR‑based extraction.
+    (This is the code from v4.0, slightly adapted.)
+    """
+    idx_s = -1
+    idx_e = len(txt)
+    for m in re.finditer(r'ACCOUNT\s+DETAILS?|LOAN\s+DETAILS?|CREDIT\s+FACILITIES', txt, re.IGNORECASE):
+        idx_s = m.end(); break
+    for m in re.finditer(r'ENQUIRY\s+DETAILS?|SCORE\s+FACTORS', txt, re.IGNORECASE):
+        if m.start() > idx_s:
+            idx_e = m.start(); break
+    if idx_s < 0:
+        section = txt
+    else:
+        section = txt[idx_s:idx_e]
+
+    lines = [l.strip() for l in section.split('\n') if l.strip()]
+
+    # Strategy detection
+    lender_lines_all = [l for l in lines if re.search(
+        r'\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b|\bLtd\b|\bSBI\b|\bBajaj\b|\bTata\b|\bMuthoot\b',
+        l, re.IGNORECASE)]
+    dpd_only_lines = [l for l in lines if re.fullmatch(r'\d{3}', l)]
+    status_only_lines = [l for l in lines if re.fullmatch(
+        r'Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss|Sub[-\s]?Standard|Standard',
+        l, re.IGNORECASE)]
+    use_digital = (len(lender_lines_all) >= 1 and
+                   len(dpd_only_lines) >= 1 and
+                   len(dpd_only_lines) >= len(lender_lines_all) - 1)
+
+    accounts = []
+
+    if use_digital:
+        n = min(len(lender_lines_all), len(dpd_only_lines))
+        for i in range(n):
+            dpd_val = _parse_dpd_value(dpd_only_lines[i])
+            if i < len(status_only_lines):
+                raw_s = status_only_lines[i].lower().replace(' ', '_').replace('-', '_')
+            else:
+                raw_s = 'active'
+            prod_label = None
+            for pat, label in {
+                r'credit\s+card': 'CC', r'personal\s+loan': 'PL',
+                r'home\s+loan|housing': 'HL', r'auto\s+loan|car\s+loan': 'AL',
+                r'gold\s+loan': 'GL', r'business\s+loan': 'BL',
+            }.items():
+                if re.search(pat, lender_lines_all[i], re.IGNORECASE):
+                    prod_label = label; break
+            accounts.append({'dpd': dpd_val, 'status': raw_s,
+                             'product': prod_label or 'others'})
+        for i in range(n, len(lender_lines_all)):
+            raw_s = status_only_lines[i].lower().replace(' ', '_').replace('-', '_') if i < len(status_only_lines) else 'active'
+            dpd_val = 0
+            if 'npa' in raw_s or 'written' in raw_s or 'loss' in raw_s:
+                dpd_val = 90
+            accounts.append({'dpd': dpd_val, 'status': raw_s, 'product': 'others'})
+    else:
+        seen_keys = set()
+        for line in section.split('\n'):
+            if not line.strip():
+                continue
+            stat_m = re.search(
+                r'\b(Active|Settled|Written[-\s]?Off|Closed|NPA|Doubtful|Loss|'
+                r'Sub[-\s]?Standard|Standard|Special\s+Mention|SMA|SUB|DBT|LSS)\b',
+                line, re.IGNORECASE)
+            standalone_codes = re.findall(r'(?<![,\d])(\d{3})(?![,\d])', line)
+            text_dpd_m = re.search(
+                r'\b(NIL|NA|N/A|XXX|STD|SMA|SUB|DBT|LSS|NPA|WO)\s*$',
+                line.strip(), re.IGNORECASE)
+            prod_label = None
+            for pat, label in {
+                r'credit\s+card|CC': 'CC', r'personal\s+loan|PL': 'PL',
+                r'home\s+loan|HL|housing': 'HL', r'auto\s+loan|car\s+loan|AL': 'AL',
+                r'gold\s+loan|GL': 'GL', r'business\s+loan|BL': 'BL',
+            }.items():
+                if re.search(pat, line, re.IGNORECASE):
+                    prod_label = label; break
+            is_account_row = (
+                stat_m or standalone_codes or text_dpd_m or
+                re.search(r'\bINR\b|\bBank\b|\bFinance\b|\bCapital\b|\bNBFC\b|\bLtd\b',
+                          line, re.IGNORECASE))
+            if not is_account_row:
+                continue
+            if text_dpd_m:
+                dpd_val = _parse_dpd_value(text_dpd_m.group(1))
+            elif standalone_codes:
+                dpd_val = _parse_dpd_value(standalone_codes[-1])
+            else:
+                dpd_val = 0
+            status = (stat_m.group(1).lower().replace(' ', '_').replace('-', '_')
+                      if stat_m else 'active')
+            dedup_key = (prod_label, dpd_val, status)
+            if dedup_key in seen_keys and prod_label == 'CC':
+                continue
+            seen_keys.add(dedup_key)
+            accounts.append({'dpd': dpd_val, 'status': status,
+                             'product': prod_label or 'others'})
+
+    dpd_90 = dpd_60 = dpd_30 = 0
+    written_off = settled = active = sub_std = 0
+
+    if accounts:
+        for acc in accounts:
+            d, s = acc['dpd'], acc['status']
+            if d >= 90:   dpd_90 += 1
+            elif d >= 60: dpd_60 += 1
+            elif d >= 30: dpd_30 += 1
+            if any(x in s for x in ('written', 'npa', 'loss', 'lss', 'wo')):
+                written_off += 1
+            elif 'settled' in s:
+                settled += 1
+            elif any(x in s for x in ('active', 'standard', 'std')):
+                active += 1
+            if d >= 30 or any(x in s for x in ('sub', 'doubtful', 'dbt', 'npa', 'sma')):
+                sub_std += 1
+    else:
+        written_off = len(re.findall(r'\bwritten[-\s]?off\b|\bNPA\b', txt, re.IGNORECASE))
+        settled     = len(re.findall(r'\bsettled\b', txt, re.IGNORECASE))
+        dpd_90      = len(re.findall(r'\b090\b|\b120\b|\b150\b|\b180\b|90\+?\s*dpd', txt, re.IGNORECASE))
+        dpd_60      = len(re.findall(r'\b060\b|60\+?\s*dpd', txt, re.IGNORECASE))
+        dpd_30      = len(re.findall(r'\b030\b|30\+?\s*dpd', txt, re.IGNORECASE))
+        active      = min(len(re.findall(r'\bactive\b', txt, re.IGNORECASE)), 15)
+
+    total_accounts = max(len(accounts), active + settled + written_off, 1)
+    return dict(
+        accounts=accounts,
+        dpd_90_count=dpd_90, dpd_60_count=dpd_60, dpd_30_count=dpd_30,
+        written_off_count=written_off, settled_count=settled,
+        active_count=active, sub_std=sub_std,
+        total_accounts=total_accounts,
+        pct_active=active / total_accounts,
+    )
 
 # ---------------------------------------------------------------------------
 # DIGITAL PDF PARSERS (using pdfplumber)
 # ---------------------------------------------------------------------------
 
 def _parse_employment_table(rows: List[List[str]]) -> Dict[str, Any]:
-    """
-    Extract employment details from a table extracted by pdfplumber.
-    Expects rows like: [['Employment Type', 'Salaried'], ...]
-    """
+    """Extract employment details from a table extracted by pdfplumber."""
     emp_type = 'Salaried'
     net_income = None
     tenure = None
@@ -1562,7 +1676,6 @@ def _parse_employment_table(rows: List[List[str]]) -> Dict[str, Any]:
         if 'employment type' in key:
             emp_type = val
         elif 'net monthly income' in key:
-            # Extract numeric value
             m = re.search(r'([\d,]+)', val)
             if m:
                 net_income = int(m.group(1).replace(',', ''))
@@ -1577,10 +1690,7 @@ def _parse_employment_table(rows: List[List[str]]) -> Dict[str, Any]:
     }
 
 def _parse_accounts_table(rows: List[List[str]]) -> Dict[str, Any]:
-    """
-    Parse the Account Details table.
-    Expected columns: Lender, Product, Opened, Limit/Amt, Balance, Status, DPD
-    """
+    """Parse the Account Details table."""
     dpd_30 = dpd_60 = dpd_90 = 0
     written_off = 0
     settled = 0
@@ -1591,7 +1701,6 @@ def _parse_accounts_table(rows: List[List[str]]) -> Dict[str, Any]:
     for row in rows:
         if len(row) < 7:
             continue
-        # Last column is DPD
         dpd_raw = row[-1].strip()
         dpd = _parse_dpd_value(dpd_raw)
         status = row[-2].strip().lower() if len(row) > 1 else ''
@@ -1626,9 +1735,7 @@ def _parse_accounts_table(rows: List[List[str]]) -> Dict[str, Any]:
     }
 
 def _parse_credit_util_section(txt: str) -> Dict[str, Any]:
-    """
-    Extract credit utilisation from text (CC%, PL%, etc.).
-    """
+    """Extract credit utilisation from text (CC%, PL%, etc.)."""
     cc_util = None
     pl_util = None
     max_unsec = None
@@ -1661,41 +1768,36 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
         return {'success': False,
                 'error': 'Neither pdfplumber nor OCR libraries are available.'}
     pdf_bytes = uploaded_file.read()
-    result = {'success': False}
 
-    # Try pdfplumber first
+    # ---- Try pdfplumber first ----
     if PDFPLUMBER_AVAILABLE:
         try:
             with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-                # Get full text
                 full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
                 if full_text.strip():
-                    # Extract tables from first page (account details, employment)
+                    # Extract tables
                     tables = []
                     for page in pdf.pages:
                         page_tables = page.extract_tables()
                         if page_tables:
                             tables.extend(page_tables)
-                    # Parse employment table (usually first table on page 1)
+
                     emp_data = {}
                     account_rows = []
                     for tbl in tables:
-                        # Try to detect if it's the employment info table
+                        # Employment table (first row contains "Employment Type")
                         if tbl and len(tbl[0]) >= 2 and 'Employment Type' in str(tbl[0][0]):
                             emp_data = _parse_employment_table(tbl)
-                        # Account details table: look for 'Lender' in first row
+                        # Account details table
                         elif tbl and len(tbl[0]) >= 7 and 'Lender' in str(tbl[0][0]):
-                            # Skip header row
-                            account_rows = tbl[1:]
-                    # Parse account table
+                            account_rows = tbl[1:]  # skip header
+
                     acc_data = _parse_accounts_table(account_rows) if account_rows else {}
-                    # Parse credit utilisation from text
                     credit_util = _parse_credit_util_section(full_text)
-                    # Parse enquiries
                     enq_data = _parse_enquiries(full_text)
 
-                    # Combine all data
-                    result.update({
+                    # Combine
+                    result = {
                         'success': True,
                         'extraction_method': 'pdfplumber+text',
                         'NETMONTHLYINCOME': emp_data.get('NETMONTHLYINCOME', 50000),
@@ -1726,14 +1828,9 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                         'PL_enq_L12m': enq_data['PL_enq_L12m'],
                         'last_prod_enq2': enq_data['last_prod_enq2'],
                         'first_prod_enq2': enq_data['first_prod_enq2'],
-                    })
+                    }
 
-                    # Try to extract credit score from image (first page)
-                    # Need to get first page as PIL image
-                    first_page = pdf.pages[0]
-                    # pdfplumber's to_image() returns an object, we need the PIL image
-                    # We'll convert to bytes and then to PIL via pdf2image (or use pdf2image directly)
-                    # Simpler: use pdf2image to get first page image
+                    # Try to extract credit score from first page image
                     try:
                         from pdf2image import convert_from_bytes
                         images = convert_from_bytes(pdf_bytes, dpi=150, first_page=1, last_page=1)
@@ -1742,31 +1839,21 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                             if score:
                                 result['Credit_Score'] = score
                     except Exception:
-                        # Fallback to text score extraction
-                        result['Credit_Score'] = _extract_credit_score_from_text(full_text)
+                        pass
 
-                    # If score still missing, use fallback
                     if 'Credit_Score' not in result:
                         result['Credit_Score'] = _extract_credit_score_from_text(full_text)
 
-                    # Compute derived fields (same as in original)
-                    # For simplicity, we'll reuse the original v4.0 post‑processing functions
-                    # But we already have most needed fields; we can add remaining ones like
-                    # num_times_30p_dpd, etc. from acc_data.
-                    # We'll call a function to fill the missing stage‑1 fields (similar to original).
-                    # To keep this answer manageable, we'll assume the original v4.0 had a
-                    # function that builds the full dict. We'll integrate it later.
-
-                    # For now, we add the remaining standard fields expected by the app.
-                    result['num_times_30p_dpd'] = acc_data.get('dpd_30_count', 0) + acc_data.get('dpd_60_count', 0) + acc_data.get('dpd_90_count', 0)
-                    result['num_times_60p_dpd'] = acc_data.get('dpd_60_count', 0) + acc_data.get('dpd_90_count', 0)
-                    result['AGE'] = 35  # will be overridden if extracted
+                    # Add derived fields
+                    result['num_times_30p_dpd'] = (result.get('dpd_30_count_6m', 0) +
+                                                    result.get('dpd_60_count_6m', 0) +
+                                                    result.get('dpd_90_count_6m', 0))
+                    result['num_times_60p_dpd'] = result.get('dpd_60_count_6m', 0) + result.get('dpd_90_count_6m', 0)
+                    result['AGE'] = 35  # will be overridden if extracted later
                     result['GENDER'] = 'U'
                     result['MARITALSTATUS'] = 'Unknown'
                     result['EDUCATION'] = 'GRADUATE'
-                    # Income already set
                     result['AMT_INCOME_TOTAL'] = result['NETMONTHLYINCOME'] * 12
-                    # Surplus proxy
                     result['_surplus_proxy'] = _infer_surplus_from_cibil(
                         result.get('Credit_Score', 720),
                         result.get('num_times_60p_dpd', 0),
@@ -1774,35 +1861,371 @@ def extract_cibil_from_pdf(uploaded_file) -> dict:
                         result.get('NETMONTHLYINCOME', 50000),
                         result.get('dpd_90_count_6m', 0)
                     )
-                    # Return success
                     return result
         except Exception as e:
             # pdfplumber failed, fall back to OCR
             pass
 
-    # Fallback to full OCR
+    # ---- Fallback to OCR ----
     if not OCR_AVAILABLE:
         return {'success': False, 'error': OCR_ERROR_MSG or 'OCR not available'}
 
     try:
         txt = _ocr_pdf(pdf_bytes)
-        # Use the existing v4.0 extraction logic that works on OCR text
-        # We'll reuse that code (the rest of the original file)
-        # For brevity, we assume we have a function `_extract_from_ocr_text` that
-        # returns the full dict (similar to the original implementation).
-        # Since the original code already had that, we can just call it.
-        # However, the original file's code was inside `extract_cibil_from_pdf`.
-        # To avoid duplication, we'll import that logic from the original module?
-        # We can simply copy the original implementation's body here, but that would make the file huge.
-        # Instead, we'll call the original function if we have it, but we are replacing the file.
-        # So we must include the original OCR‑based parsing code here.
-        # To keep this answer concise, I'll outline that we use the original parsing
-        # that was present in the v4.0 code (the long block after `_ocr_pdf`).
-        # The full code would contain that block.
-        pass
+
+        # ----- Original OCR extraction logic (v4.0) -----
+        # Credit score
+        credit_score = _extract_credit_score_from_text(txt)
+
+        # Age / DOB
+        age_extracted = 35
+        for pat in [
+            r'(?:date\s+of\s+birth|dob|d\.o\.b)[\s:\-\n]+(\d{2}[-/][A-Za-z]{3}[-/]\d{4})',
+            r'(?:date\s+of\s+birth|dob)[\s:\-]+(\d{2}[-/]\d{2}[-/]\d{4})',
+            r'born[\s:]+(\d{2}[-/][A-Za-z]{3}[-/]\d{4})',
+            r'\b(\d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4})\b',
+        ]:
+            m = re.search(pat, txt, re.IGNORECASE)
+            if m:
+                for fmt in ('%d-%b-%Y', '%d/%b/%Y', '%d-%b-%y',
+                            '%d-%m-%Y', '%d/%m/%Y'):
+                    try:
+                        dob = datetime.strptime(m.group(1), fmt)
+                        candidate = int((datetime.now() - dob).days / 365.25)
+                        if 18 <= candidate <= 80:
+                            age_extracted = candidate
+                            break
+                    except Exception:
+                        continue
+                if age_extracted != 35:
+                    break
+        if age_extracted == 35:
+            m_partial = re.search(
+                r'(?:date\s+of\s+birth|dob)[\s\S]{0,20}?(\d{2}-[A-Za-z]{3}-\d{3})',
+                txt, re.IGNORECASE)
+            if m_partial:
+                partial = m_partial.group(1)
+                after_pos = m_partial.end()
+                m_digit = re.search(r'(?<!\d)(\d)(?!\d)',
+                                    txt[after_pos:after_pos + 200])
+                if m_digit:
+                    year_int = int(partial[-3:] + m_digit.group(1))
+                    if 1940 <= year_int <= 2010:
+                        try:
+                            dob = datetime.strptime(partial + m_digit.group(1), '%d-%b-%Y')
+                            candidate = int((datetime.now() - dob).days / 365.25)
+                            if 18 <= candidate <= 80:
+                                age_extracted = candidate
+                        except Exception:
+                            pass
+        if age_extracted == 35:
+            age_extracted = _re_int(r'(?:^|\s)age[\s:\-]+(\d{2})\b',
+                                    txt, 35, lo=18, hi=80)
+
+        # Gender
+        if re.search(r'\bfemale\b|\bF\b|\bShe\b|\bHer\b', txt, re.IGNORECASE):
+            gender = 'F'
+        elif re.search(r'\bmale\b|\bM\b|\bHe\b|\bHis\b', txt, re.IGNORECASE):
+            gender = 'M'
+        else:
+            gender = 'U'
+
+        # Marital status
+        if re.search(r'\bsingle\b|\bunmarried\b', txt, re.IGNORECASE):
+            marital_status = 'Single'
+        elif re.search(r'\bmarried\b|\bspouse\b', txt, re.IGNORECASE):
+            marital_status = 'Married'
+        else:
+            marital_status = 'Unknown'
+
+        # Education
+        education = 'GRADUATE'
+        for pat, val in [
+            (r'post.?grad(uate)?|m\.?tech|mba|mca', 'POST-GRADUATE'),
+            (r'professional|ca\b|cs\b|icai',          'PROFESSIONAL'),
+            (r'\b12th\b|\bhsc\b|\binter(mediate)?\b', '12TH'),
+            (r'\bssc\b|\b10th\b|\bmatric',             'SSC'),
+            (r'under.?grad(uate)?',                    'UNDER GRADUATE'),
+            (r'\bgrad(uate)?\b|\bb\.?tech\b|\bb\.?e\b|\bb\.?sc\b|\bb\.?com\b', 'GRADUATE'),
+        ]:
+            if re.search(pat, txt, re.IGNORECASE):
+                education = val; break
+
+        # Income
+        monthly_income = _extract_income(txt)
+
+        # Employment
+        employment_type = 'Salaried'
+        if re.search(r'self.?employed|self\s+employ|proprietor|freelance',
+                     txt, re.IGNORECASE):
+            employment_type = 'Self-Employed'
+        elif re.search(r'\bbusiness\b|\bfirm\b|\bpartner(ship)?\b',
+                       txt, re.IGNORECASE):
+            employment_type = 'Business'
+
+        employment_tenure_months = 36
+        m = re.search(
+            r'(?:with\s+current\s+employer|employment\s+tenure|'
+            r'employed\s+(?:since|for))[^\d]{0,20}(\d+)\s*(?:year|yr)',
+            txt, re.IGNORECASE)
+        if m:
+            employment_tenure_months = int(m.group(1)) * 12
+        else:
+            m = re.search(
+                r'(?:with\s+current\s+employer|tenure)[^\d]{0,20}(\d+)\s*(?:month|mth)',
+                txt, re.IGNORECASE)
+            if m: employment_tenure_months = int(m.group(1))
+
+        existing_emi = 0
+        for emi_pat in [
+            r'(?:total\s+emi|existing\s+emi|current\s+emi|monthly\s+emi)'
+            r'[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)',
+            r'emi\s+(?:outflow|obligation)[^\d]{0,20}([0-9,]+)',
+            r'total\s+(?:monthly\s+)?obligation[\s:\-₹]*([0-9,]+)',
+        ]:
+            mm = re.search(emi_pat, txt, re.IGNORECASE)
+            if mm:
+                v = int(mm.group(1).replace(',', ''))
+                if 500 < v < 500_000:
+                    existing_emi = v; break
+
+        business_vintage = 0
+        mb = re.search(
+            r'(?:business\s+(?:since|established|vintage|age|started))'
+            r'[^\d]{0,20}(\d+)\s*(?:year|yr)', txt, re.IGNORECASE)
+        if mb: business_vintage = int(mb.group(1))
+
+        # Credit utilisation
+        cc_util_pct = -99999
+        mc = re.search(
+            r'(?:credit\s+card\s+utiliz[ao]tion|cc\s+utiliz[ao]tion|'
+            r'utiliz[ao]tion\s+ratio)[^\d]{0,20}(\d{1,3})\s*%?',
+            txt, re.IGNORECASE)
+        if mc: cc_util_pct = int(mc.group(1))
+        pl_util = _re_float(
+            r'(?:personal\s+loan\s+utiliz[ao]tion|pl\s+utiliz[ao]tion)'
+            r'[^\d]{0,20}([\d\.]+)', txt, 0.25, lo=0, hi=5)
+
+        # Enquiries
+        enq_data = _parse_enquiries(txt)
+
+        # Accounts / DPD
+        acc = _parse_accounts_ocr(txt)
+        dpd_90_count      = acc['dpd_90_count']
+        dpd_60_count      = acc['dpd_60_count']
+        dpd_30_count      = acc['dpd_30_count']
+        written_off_count = acc['written_off_count']
+        settled_count     = acc['settled_count']
+        active_count      = acc['active_count']
+        sub_std           = acc['sub_std']
+        total_accounts    = acc['total_accounts']
+        pct_active        = acc['pct_active']
+        num_std = active_count
+        num_sub = sub_std
+        num_dbt = dpd_90_count
+        num_lss = written_off_count
+
+        # Sanity check
+        if credit_score >= 750 and (written_off_count > 0 or dpd_90_count > 0):
+            credit_score = min(credit_score, 550)
+
+        # Delinquency timings
+        recent_level_of_deliq = max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)
+        num_deliq_6mts    = dpd_30_count + dpd_60_count + dpd_90_count
+        num_deliq_12mts   = num_deliq_6mts
+        num_deliq_6_12mts = 0
+        max_deliq_6mts    = -99999 if num_deliq_6mts == 0 else recent_level_of_deliq
+        max_deliq_12mts   = max_deliq_6mts
+        num_std_6mts  = min(num_std, _re_int(r'standard\s+accounts?\s*\(?6m\)?[\s:\-]+(\d+)', txt, num_std))
+        num_std_12mts = _re_int(r'standard\s+accounts?\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_std)
+        num_sub_6mts  = _re_int(r'sub.?standard\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
+        num_sub_12mts = _re_int(r'sub.?standard\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_sub)
+        num_dbt_6mts  = _re_int(r'doubtful\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
+        num_dbt_12mts = _re_int(r'doubtful\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_dbt)
+        num_lss_6mts  = _re_int(r'loss\s*\(?6m\)?[\s:\-]+(\d+)', txt, 0)
+        num_lss_12mts = _re_int(r'loss\s*\(?12m\)?[\s:\-]+(\d+)', txt, num_lss)
+        num_times_delinquent  = dpd_30_count + dpd_60_count + dpd_90_count
+        num_times_30p_dpd     = dpd_30_count + dpd_60_count + dpd_90_count
+        num_times_60p_dpd     = dpd_60_count + dpd_90_count
+        max_delinquency_level = max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)
+
+        time_since_recent_payment = _re_int(
+            r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*days?', txt, -99999)
+        if time_since_recent_payment == -99999:
+            mv = re.search(r'(?:last|recent)\s+payment[\s:\-]+(\d+)\s*(?:month|mth)',
+                           txt, re.IGNORECASE)
+            if mv: time_since_recent_payment = int(mv.group(1)) * 30
+
+        time_since_first_deliq = (
+            -99999 if num_times_delinquent == 0 else
+            _re_int(r'first\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 365))
+        time_since_recent_deliq = (
+            -99999 if num_times_delinquent == 0 else
+            _re_int(r'(?:last|recent)\s+delinquency[\s:\-]+(\d+)\s*days?', txt, 90))
+
+        # Trade-line ratios
+        pct_of_active_TLs_ever     = round(pct_active, 3)
+        pct_opened_TLs_L6m_of_L12m = _re_float(
+            r'(?:opened|new)\s+accounts?\s*\(?6m\s*/\s*12m\)?[\s:\-]+([\d\.]+)',
+            txt, 0.3, lo=0, hi=1)
+        pct_currentBal_all_TL = _re_float(
+            r'current\s+balance\s+(?:ratio|pct|%)[\s:\-]+([\d\.]+)',
+            txt, 0.3, lo=0, hi=10)
+        PL_enq_L6m  = enq_data['PL_enq_L6m'];  PL_enq_L12m = enq_data['PL_enq_L12m']
+        PL_enq      = enq_data['PL_enq']
+        CC_enq_L6m  = enq_data['CC_enq_L6m'];  CC_enq_L12m = enq_data['CC_enq_L12m']
+        CC_enq      = enq_data['CC_enq']
+        pct_PL_enq_L6m_of_L12m = round(PL_enq_L6m / max(PL_enq_L12m, 1), 2) if PL_enq_L6m >= 0 else 0
+        pct_CC_enq_L6m_of_L12m = round(CC_enq_L6m / max(CC_enq_L12m, 1), 2) if CC_enq_L6m >= 0 else 0
+        pct_PL_enq_L6m_of_ever = round(PL_enq_L6m / max(PL_enq if PL_enq >= 0 else 1, 1), 2)
+        pct_CC_enq_L6m_of_ever = round(CC_enq_L6m / max(CC_enq if CC_enq >= 0 else 1, 1), 2)
+
+        # Product flags
+        CC_Flag = 1 if re.search(r'credit\s+card', txt, re.IGNORECASE) else 0
+        PL_Flag = 1 if re.search(r'personal\s+loan', txt, re.IGNORECASE) else 0
+        HL_Flag = 1 if re.search(r'home\s+loan|housing\s+loan', txt, re.IGNORECASE) else 0
+        GL_Flag = 1 if re.search(r'gold\s+loan', txt, re.IGNORECASE) else 0
+
+        # Net cash surplus
+        net_cash_surplus = _re_int(
+            r'(?:net\s+(?:cash\s+)?surplus|disposable\s+income)'
+            r'[^\d₹]{0,20}[₹Rs\.]*\s*([0-9,]+)', txt, 0)
+        if net_cash_surplus == 0:
+            net_cash_surplus = int(_infer_surplus_from_cibil(
+                credit_score, dpd_60_count, dpd_30_count, float(monthly_income),
+                dpd_90=dpd_90_count))
+
+        # Bank-statement proxies
+        inward_bounce_count_3m = dpd_90_count + dpd_60_count
+        salary_missing_months  = 0
+        total_credit_6m = _re_int(r'total\s+credits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
+        total_debit_6m  = _re_int(r'total\s+debits?\s*\(?6m\)?[\s:\-₹]*([0-9,]+)', txt, 0)
+
+        # Stage-1 field mapping
+        s1 = {
+            'AMT_INCOME_TOTAL':           monthly_income * 12,
+            'AMT_ANNUITY':                existing_emi if existing_emi > 0 else int(monthly_income * 0.25),
+            'avg_salary_6m':              float(monthly_income),
+            'salary_txn_count_6m':        6.0,
+            'salary_amount_cv':           0.05 if employment_type == 'Salaried' else 0.25,
+            'salary_date_std':            2.0,
+            'salary_creditor_consistent': 1.0 if employment_type == 'Salaried' else 0.7,
+            'salary_missing_months':      float(salary_missing_months),
+            'dpd_15_count_6m':            0.0,
+            'dpd_30_count_6m':            float(dpd_30_count),
+            'dpd_90_count_6m':            float(dpd_90_count),
+            'max_dpd_6m':                 float(max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)),
+            'dpd_30_count_3m':            float(dpd_30_count),
+            'total_payments_6m':          3.0,
+            'total_late_15_6m':           0.0,
+            'total_late_30_6m':           float(dpd_30_count),
+            'total_late_60_6m':           float(dpd_60_count),
+            'total_late_90_6m':           float(dpd_90_count),
+            'max_days_late_6m':           float(max(dpd_90_count*90, dpd_60_count*60, dpd_30_count*30)),
+            'avg_days_late_6m':           float(dpd_30_count*10 + dpd_60_count*20 + dpd_90_count*40) / max(total_accounts, 1),
+            'total_late_30_3m':           float(dpd_30_count),
+            'total_late_90_3m':           float(dpd_90_count),
+            'avg_balance_cc':             0.0, 'total_drawings_cc': 0.0,
+            'avg_credit_limit':           0.0, 'max_utilization': (cc_util_pct / 100) if cc_util_pct > 0 else 0.0,
+            'total_payments_cc':          0.0, 'dpd_count_cc': 0.0,
+            'avg_balance_pos':            0.0, 'dpd_count_pos': 0.0,
+            'total_credit_activity':      float(total_accounts),
+            'total_dpd_count':            float(dpd_30_count + dpd_60_count + dpd_90_count),
+            'avg_monthly_balance_6m':     float(net_cash_surplus),
+            'total_emi_monthly':          float(existing_emi if existing_emi > 0 else int(monthly_income * 0.25)),
+            'net_cash_surplus_6m':        float(net_cash_surplus),
+            'total_credit_6m':            float(total_credit_6m),
+            'total_debit_6m':             float(total_debit_6m),
+            'inward_bounce_count_3m':     float(inward_bounce_count_3m),
+            'recent_payment_stress':      float(dpd_30_count + dpd_60_count),
+            'active_loans_count':         float(active_count),
+            'bureau_score':               float(credit_score),
+        }
+
+        # Stage-2 field mapping
+        s2 = {
+            'Credit_Score': credit_score, 'AGE': age_extracted,
+            'GENDER': gender, 'MARITALSTATUS': marital_status,
+            'EDUCATION': education, 'NETMONTHLYINCOME': monthly_income,
+            'Time_With_Curr_Empr': employment_tenure_months,
+            'num_times_delinquent': num_times_delinquent,
+            'max_delinquency_level': max_delinquency_level,
+            'max_recent_level_of_deliq': max(dpd_60_count*60, dpd_30_count*30),
+            'num_deliq_6mts': num_deliq_6mts, 'num_deliq_12mts': num_deliq_12mts,
+            'num_deliq_6_12mts': num_deliq_6_12mts,
+            'max_deliq_6mts': max_deliq_6mts, 'max_deliq_12mts': max_deliq_12mts,
+            'num_times_30p_dpd': num_times_30p_dpd, 'num_times_60p_dpd': num_times_60p_dpd,
+            'recent_level_of_deliq': recent_level_of_deliq,
+            'num_std': num_std, 'num_std_6mts': num_std_6mts, 'num_std_12mts': num_std_12mts,
+            'num_sub': num_sub, 'num_sub_6mts': num_sub_6mts, 'num_sub_12mts': num_sub_12mts,
+            'num_dbt': num_dbt, 'num_dbt_6mts': num_dbt_6mts, 'num_dbt_12mts': num_dbt_12mts,
+            'num_lss': num_lss, 'num_lss_6mts': num_lss_6mts, 'num_lss_12mts': num_lss_12mts,
+            'time_since_recent_payment': time_since_recent_payment,
+            'time_since_first_deliquency': time_since_first_deliq,
+            'time_since_recent_deliquency': time_since_recent_deliq,
+            'tot_enq': enq_data['tot_enq'], 'enq_L3m': enq_data['enq_L3m'],
+            'enq_L6m': enq_data['enq_L6m'], 'enq_L12m': enq_data['enq_L12m'],
+            'time_since_recent_enq': enq_data['time_since_recent_enq'],
+            'CC_enq': CC_enq, 'CC_enq_L6m': CC_enq_L6m, 'CC_enq_L12m': CC_enq_L12m,
+            'PL_enq': PL_enq, 'PL_enq_L6m': PL_enq_L6m, 'PL_enq_L12m': PL_enq_L12m,
+            'pct_of_active_TLs_ever': pct_of_active_TLs_ever,
+            'pct_opened_TLs_L6m_of_L12m': pct_opened_TLs_L6m_of_L12m,
+            'pct_currentBal_all_TL': pct_currentBal_all_TL,
+            'pct_PL_enq_L6m_of_L12m': pct_PL_enq_L6m_of_L12m,
+            'pct_CC_enq_L6m_of_L12m': pct_CC_enq_L6m_of_L12m,
+            'pct_PL_enq_L6m_of_ever': pct_PL_enq_L6m_of_ever,
+            'pct_CC_enq_L6m_of_ever': pct_CC_enq_L6m_of_ever,
+            'CC_utilization': cc_util_pct / 100 if cc_util_pct > 0 else -99999,
+            'PL_utilization': pl_util,
+            'CC_Flag': CC_Flag, 'PL_Flag': PL_Flag, 'HL_Flag': HL_Flag, 'GL_Flag': GL_Flag,
+            'max_unsec_exposure_inPct': cc_util_pct if cc_util_pct > 0 else 0,
+            'last_prod_enq2': enq_data['last_prod_enq2'],
+            'first_prod_enq2': enq_data['first_prod_enq2'],
+        }
+
+        # Categorical flags
+        from infer_categorical_flags import infer_categorical_flags  # fallback import
+        _inf = infer_categorical_flags({
+            'Credit_Score': credit_score, 'num_times_30p_dpd': dpd_30_count,
+            'num_times_60p_dpd': dpd_60_count, 'num_lss': num_lss,
+            'num_dbt': num_dbt,
+            'CC_utilization': cc_util_pct / 100 if cc_util_pct > 0 else 0,
+            'NETMONTHLYINCOME': monthly_income, 'Time_With_Curr_Empr': employment_tenure_months,
+            'dpd_90_count_6m': dpd_90_count, 'inward_bounce_count_3m': inward_bounce_count_3m,
+            'salary_missing_months': salary_missing_months,
+            'net_cash_surplus_6m': net_cash_surplus,
+        })
+
+        recent_deliq_flag = 1 if (dpd_90_count > 0 or dpd_60_count > 0) else 0
+
+        return {
+            **s1, **s2,
+            'existing_emi':              existing_emi if existing_emi > 0 else s1['total_emi_monthly'],
+            'employment_type':           employment_type,
+            'business_vintage_years':    business_vintage,
+            'credit_utilization_pct':    cc_util_pct if cc_util_pct > 0 else 0,
+            'salary_stability_flag':     _inf['salary_stability_flag'],
+            'payment_discipline_flag':   _inf['payment_discipline_flag'],
+            'cashflow_health':           _inf['cashflow_health'],
+            'liquidity_flag':            _inf['liquidity_flag'],
+            'bureau_risk_flag':          _inf['bureau_risk_flag'],
+            'written_off_count':         written_off_count,
+            'settled_count':             settled_count,
+            'high_util_flag':            1 if cc_util_pct > 75 else 0,
+            'recent_deliq_flag':         recent_deliq_flag,
+            'account_quality_score':     max(0, 100 - written_off_count*20
+                                             - settled_count*10 - dpd_90_count*15
+                                             - dpd_30_count*5),
+            '_surplus_proxy':            int(net_cash_surplus),
+            'raw_text':                  txt,
+            'success':                   True,
+            'extraction_method':         'OCR+MultiPass_v4',
+        }
+
     except Exception as e:
-        return {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-
-    # If we get here, something went wrong
-    return {'success': False, 'error': 'Extraction failed'}
-
+        return {
+            'error':     str(e),
+            'message':   f'Error extracting CIBIL data: {str(e)}',
+            'traceback': traceback.format_exc(),
+            'success':   False,
+        }
