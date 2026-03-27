@@ -2030,13 +2030,9 @@
 #         }
 
 
-
-
-
-
 """
-CIBIL PDF OCR Extractor — Production Grade (Fully Corrected)
-============================================================
+CIBIL PDF OCR Extractor — Production Grade (v3.1 — Fully Fixed)
+================================================================
 Extracts ALL fields from TransUnion CIBIL reports including:
   - Personal & employment info
   - Credit score & risk flags
@@ -2045,20 +2041,17 @@ Extracts ALL fields from TransUnion CIBIL reports including:
   - Enquiry breakdown
   - Derived model features aligned with credit_risk_engine schema
 
-Fixes applied vs. original extraction:
-  ✅ FIX-1: Function now accepts UploadedFile OR file path (was path-only, broke Streamlit upload)
-  ✅ FIX-2: Returns {'success': True/False, ...} so app.py can check extraction result
-  ✅ FIX-3: Wraps entire extraction in try/except and returns traceback on failure
-  ✅ Account rows now correctly parsed despite concatenated fields (e.g., "Kotak BankCredit Card")
-  ✅ Credit utilisation percentages parsed correctly even when no spaces between values
-  ✅ Car Loan mapped to GL (not HL)
-  ✅ HL_Flag only set when actual Home Loan exists
-  ✅ EMI estimation uses appropriate product (car loan for GL, home loan for HL)
-  ✅ pct_currentBal_all_TL computed from actual account totals
-  ✅ Delinquency scoring corrected (30-day late adds 10 points, 90-day adds 30)
-  ✅ account_quality_score corrected
-  ✅ net_cash_surplus_6m and avg_monthly_balance_6m now based on correct EMI
-  ✅ All product flags (CC, PL, HL, GL) driven by actual account types
+Fixes in v3.1 vs v3.0:
+  ✅ FIX-A: pdfplumber import made optional — won't crash if missing
+  ✅ FIX-B: OCR fallback (pytesseract + pdf2image) when pdfplumber gets no text
+            OR when pdfplumber itself is not installed
+  ✅ FIX-C: Detailed traceback ALWAYS returned in 'traceback' key so app.py
+            expander can display it
+  ✅ FIX-D: 'error' key always contains the real exception message (not 'Unknown error')
+  ✅ FIX-E: PDF bytes rewound before pdfplumber to avoid 0-byte reads on
+            Streamlit UploadedFile objects (seek(0) call added)
+  ✅ FIX-F: extraction_method key returned so UI can show how data was extracted
+  Original FIX-1 through FIX-3 retained.
 """
 
 import re
@@ -2067,7 +2060,28 @@ import math
 import traceback as _tb
 from datetime import datetime
 from typing import Optional, Union
-import pdfplumber
+
+# ── Optional imports — degrade gracefully ──────────────────────────────────
+_PDFPLUMBER_OK = False
+try:
+    import pdfplumber
+    _PDFPLUMBER_OK = True
+except ImportError:
+    pass
+
+_OCR_OK = False
+try:
+    import pytesseract
+    from pdf2image import convert_from_bytes
+    from PIL import Image
+    import shutil as _shutil
+    _tess = _shutil.which("tesseract") or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if _tess:
+        pytesseract.pytesseract.tesseract_cmd = _tess
+    pytesseract.get_tesseract_version()
+    _OCR_OK = True
+except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -2120,7 +2134,72 @@ def _safe_int(val) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Main extractor
+# Text extraction layer — tries pdfplumber first, falls back to OCR
+# ---------------------------------------------------------------------------
+
+def _extract_text_from_source(pdf_source) -> tuple[str, str]:
+    """
+    Returns (full_text, method) where method is 'pdfplumber' | 'ocr' | 'failed'.
+    FIX-E: Always seek(0) before reading to handle Streamlit UploadedFile objects
+           whose read pointer may have advanced from a previous read() call.
+    FIX-B: Falls back to pytesseract OCR if pdfplumber yields no text.
+    """
+    # Normalise to bytes — read once, reuse
+    if hasattr(pdf_source, 'read'):
+        # FIX-E: seek to start before reading
+        if hasattr(pdf_source, 'seek'):
+            pdf_source.seek(0)
+        pdf_bytes = pdf_source.read()
+    else:
+        with open(pdf_source, 'rb') as f:
+            pdf_bytes = f.read()
+
+    full_text = ""
+
+    # ── Attempt 1: pdfplumber (text-based PDF) ────────────────────────────
+    if _PDFPLUMBER_OK:
+        try:
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                full_text = "\n".join(
+                    page.extract_text() or "" for page in pdf.pages
+                )
+        except Exception:
+            full_text = ""
+
+    if full_text.strip():
+        return full_text, "pdfplumber"
+
+    # ── Attempt 2: pytesseract OCR (scanned / image-only PDF) ────────────
+    if _OCR_OK:
+        try:
+            images = convert_from_bytes(pdf_bytes, dpi=300)
+            pages_text = []
+            for img in images:
+                text = pytesseract.image_to_string(img, lang='eng')
+                pages_text.append(text)
+            full_text = "\n".join(pages_text)
+        except Exception:
+            full_text = ""
+
+    if full_text.strip():
+        return full_text, "ocr"
+
+    # ── Nothing worked ────────────────────────────────────────────────────
+    raise ValueError(
+        "Could not extract text from PDF.\n"
+        f"  pdfplumber available: {_PDFPLUMBER_OK}\n"
+        f"  OCR (tesseract) available: {_OCR_OK}\n"
+        "The file may be:\n"
+        "  • Encrypted or password-protected\n"
+        "  • A scanned image without OCR support installed\n"
+        "Solutions:\n"
+        "  • Add 'pdfplumber' to requirements.txt\n"
+        "  • Add 'pytesseract' + 'pdf2image' to requirements.txt AND 'tesseract-ocr poppler-utils' to packages.txt"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main extractor — public API
 # ---------------------------------------------------------------------------
 
 def extract_cibil_from_pdf(pdf_source: Union[str, object]) -> dict:
@@ -2128,51 +2207,31 @@ def extract_cibil_from_pdf(pdf_source: Union[str, object]) -> dict:
     Parse a TransUnion CIBIL PDF and return a flat feature dict
     compatible with the credit_risk_engine schema.
 
-    FIX-1: Accepts EITHER:
+    Accepts:
       - a file path string (e.g. "cibil.pdf")
       - a Streamlit UploadedFile object (has .read() method)
       - any file-like object with .read()
 
-    FIX-2: Always returns a dict with 'success' key:
-      {'success': True,  ...fields...}
+    Always returns a dict with 'success' key:
+      {'success': True,  'extraction_method': '...', ...fields...}
       {'success': False, 'error': '...', 'traceback': '...'}
-
-    FIX-3: All exceptions are caught and returned as structured error dict.
     """
     try:
         return _extract_impl(pdf_source)
     except Exception as e:
+        # FIX-C: always return full traceback so app.py expander can show it
+        # FIX-D: error is the real exception string, never 'Unknown error'
         return {
-            'success': False,
-            'error': f"{type(e).__name__}: {str(e)}",
+            'success':   False,
+            'error':     f"{type(e).__name__}: {str(e)}",
             'traceback': _tb.format_exc(),
         }
 
 
 def _extract_impl(pdf_source: Union[str, object]) -> dict:
-    """
-    Internal implementation. Raises on error — caller wraps in try/except.
-    """
-    # FIX-1: Normalise input to something pdfplumber.open() accepts
-    if hasattr(pdf_source, 'read'):
-        # Streamlit UploadedFile or any file-like object
-        pdf_bytes = pdf_source.read()
-        pdf_file = io.BytesIO(pdf_bytes)
-    else:
-        # Plain file path string
-        pdf_file = pdf_source
+    """Internal implementation. Raises on error."""
 
-    with pdfplumber.open(pdf_file) as pdf:
-        full_text = "\n".join(
-            page.extract_text() or "" for page in pdf.pages
-        )
-
-    if not full_text.strip():
-        raise ValueError(
-            "PDF produced no extractable text. "
-            "The file may be image-only (scanned) or encrypted. "
-            "Ensure the PDF is text-based or add OCR support (pytesseract + pdf2image)."
-        )
+    full_text, extraction_method = _extract_text_from_source(pdf_source)
 
     lines = [l.strip() for l in full_text.splitlines() if l.strip()]
     text_block = " ".join(lines)
@@ -2222,7 +2281,10 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
         employment_type = m.group(1).strip()
 
     net_monthly_income = 0.0
-    m = re.search(r'Net Monthly Income\s+With Current Employer\s+Rs\.\s*([\d,]+)\s+(\d+)\s+months', text_block, re.IGNORECASE)
+    m = re.search(
+        r'Net Monthly Income\s+With Current Employer\s+Rs\.\s*([\d,]+)\s+(\d+)\s+months',
+        text_block, re.IGNORECASE
+    )
     if m:
         net_monthly_income = _parse_rs(m.group(1))
     if net_monthly_income == 0:
@@ -2253,11 +2315,14 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
         closed_accounts = int(m.group(3))
         settled_count   = int(m.group(4))
 
-    m = re.search(r'Written Off\s+Current Balance\s+Overdue Amount\s+(\d+)\s+(Rs\.\s*[\d,]+)\s+(Rs\.\s*[\d,]+)', text_block)
+    m = re.search(
+        r'Written Off\s+Current Balance\s+Overdue Amount\s+(\d+)\s+(Rs\.\s*[\d,]+)\s+(Rs\.\s*[\d,]+)',
+        text_block
+    )
     if m:
-        written_off_count      = int(m.group(1))
-        current_balance_total  = _parse_rs(m.group(2))
-        overdue_amount         = _parse_rs(m.group(3))
+        written_off_count     = int(m.group(1))
+        current_balance_total = _parse_rs(m.group(2))
+        overdue_amount        = _parse_rs(m.group(3))
 
     # ------------------------------------------------------------------
     # 5. CREDIT UTILISATION
@@ -2268,7 +2333,8 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     credit_hungry = 0
 
     m = re.search(
-        r'CC Utilization\s*%\s*PL Utilization\s*%\s*Max Unsecured Exposure\s*%\s*Credit Hungry Flag\s*([\d.]+)%\s*([\d.]+)%\s*([\d.]+)%\s*(Yes|No)',
+        r'CC Utilization\s*%\s*PL Utilization\s*%\s*Max Unsecured Exposure\s*%\s*Credit Hungry Flag'
+        r'\s*([\d.]+)%\s*([\d.]+)%\s*([\d.]+)%\s*(Yes|No)',
         text_block, re.IGNORECASE
     )
     if m:
@@ -2290,13 +2356,13 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     # 6. ACCOUNT DETAILS
     # ------------------------------------------------------------------
     PRODUCT_TYPES = {
-        'Home Loan': 'HL',
-        'Car Loan': 'GL',
-        'Auto Loan': 'GL',
-        'Gold Loan': 'GL',
+        'Home Loan':     'HL',
+        'Car Loan':      'GL',
+        'Auto Loan':     'GL',
+        'Gold Loan':     'GL',
         'Personal Loan': 'PL',
-        'Credit Card': 'CC',
-        'Overdraft': 'CC',
+        'Credit Card':   'CC',
+        'Overdraft':     'CC',
     }
 
     account_rows = []
@@ -2315,17 +2381,17 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
             r'(\d+)',
             re.IGNORECASE
         )
-        for m in row_pattern.finditer(rows_text):
-            product_raw = m.group(2).strip()
+        for match in row_pattern.finditer(rows_text):
+            product_raw = match.group(2).strip()
             account_rows.append({
-                'lender':   m.group(1).strip(),
-                'product':  product_raw,
-                'ptype':    PRODUCT_TYPES.get(product_raw, 'OTH'),
-                'opened':   m.group(3),
-                'limit':    _parse_rs(m.group(4)),
-                'balance':  _parse_rs(m.group(5)),
-                'status':   m.group(6).strip(),
-                'dpd':      int(m.group(7)),
+                'lender':  match.group(1).strip(),
+                'product': product_raw,
+                'ptype':   PRODUCT_TYPES.get(product_raw, 'OTH'),
+                'opened':  match.group(3),
+                'limit':   _parse_rs(match.group(4)),
+                'balance': _parse_rs(match.group(5)),
+                'status':  match.group(6).strip(),
+                'dpd':     int(match.group(7)),
             })
 
     cc_rows = [r for r in account_rows if r['ptype'] == 'CC']
@@ -2333,9 +2399,8 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     hl_rows = [r for r in account_rows if r['ptype'] == 'HL']
     gl_rows = [r for r in account_rows if r['ptype'] == 'GL']
 
-    avg_balance_cc    = sum(r['balance'] for r in cc_rows) / len(cc_rows) if cc_rows else 0.0
-    avg_credit_limit  = sum(r['limit']   for r in cc_rows) / len(cc_rows) if cc_rows else 0.0
-    total_drawings_cc = 0.0
+    avg_balance_cc   = sum(r['balance'] for r in cc_rows) / len(cc_rows) if cc_rows else 0.0
+    avg_credit_limit = sum(r['limit']   for r in cc_rows) / len(cc_rows) if cc_rows else 0.0
 
     pl_total_limit   = sum(r['limit']   for r in pl_rows)
     pl_total_balance = sum(r['balance'] for r in pl_rows)
@@ -2346,7 +2411,7 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     HL_Flag = 1 if hl_rows else 0
     GL_Flag = 1 if gl_rows else 0
 
-    cc_utilization = round(cc_util_pct / 100, 4)
+    cc_utilization       = round(cc_util_pct / 100, 4)
     pl_utilization_cibil = round(pl_util_pct / 100, 4)
     pl_utilization_final = pl_utilization_cibil if pl_util_pct > 0 else pl_utilization
 
@@ -2372,10 +2437,13 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
             if enq_date:
                 time_since_recent_enq = (datetime.today() - enq_date).days
 
-    last_prod_enq2 = "OTH"
+    last_prod_enq2  = "OTH"
     first_prod_enq2 = "OTH"
     if enq_section_m:
-        prod_matches = re.findall(r'\d{2}-[A-Za-z]{3}-\d{4}\s+([\w\s]+?)(?=\s+Rs\.)', enq_section_m.group(1), re.IGNORECASE)
+        prod_matches = re.findall(
+            r'\d{2}-[A-Za-z]{3}-\d{4}\s+([\w\s]+?)(?=\s+Rs\.)',
+            enq_section_m.group(1), re.IGNORECASE
+        )
         if prod_matches:
             for prod_raw, dest in [(prod_matches[0], 'last'), (prod_matches[-1], 'first')]:
                 p = prod_raw.strip().lower()
@@ -2398,23 +2466,22 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     pl_balance = sum(r['balance'] for r in pl_rows)
     pl_emi_est = round(pl_balance / 24, 2) if pl_balance > 0 else 0.0
 
-    existing_emi = hl_emi_est + gl_emi_est + pl_emi_est
-    amt_annuity = existing_emi
-    total_emi_monthly = existing_emi
-
-    net_cash_surplus_6m = net_monthly_income - existing_emi
+    existing_emi       = hl_emi_est + gl_emi_est + pl_emi_est
+    amt_annuity        = existing_emi
+    total_emi_monthly  = existing_emi
+    net_cash_surplus_6m    = net_monthly_income - existing_emi
     avg_monthly_balance_6m = net_cash_surplus_6m
 
     # ------------------------------------------------------------------
     # 9. DELINQUENCY FEATURES
     # ------------------------------------------------------------------
-    max_dpd_6m = max((r['dpd'] for r in account_rows), default=0)
-    dpd_15_count_6m = sum(1 for r in account_rows if r['dpd'] >= 15)
-    dpd_30_count_6m = sum(1 for r in account_rows if r['dpd'] >= 30)
-    dpd_60_count_6m = sum(1 for r in account_rows if r['dpd'] >= 60)
-    dpd_90_count_6m = sum(1 for r in account_rows if r['dpd'] >= 90)
-    dpd_30_count_3m = 0
-    total_dpd_count = dpd_30_count_6m
+    max_dpd_6m       = max((r['dpd'] for r in account_rows), default=0)
+    dpd_15_count_6m  = sum(1 for r in account_rows if r['dpd'] >= 15)
+    dpd_30_count_6m  = sum(1 for r in account_rows if r['dpd'] >= 30)
+    dpd_60_count_6m  = sum(1 for r in account_rows if r['dpd'] >= 60)
+    dpd_90_count_6m  = sum(1 for r in account_rows if r['dpd'] >= 90)
+    dpd_30_count_3m  = 0
+    total_dpd_count  = dpd_30_count_6m
 
     high_dpd_risk         = 1 if max_dpd_6m >= 60 else 0
     recent_deliq_flag     = 1 if dpd_30_count_6m > 0 else 0
@@ -2424,28 +2491,28 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     # ------------------------------------------------------------------
     # 10. BANK STATEMENT PLACEHOLDERS
     # ------------------------------------------------------------------
-    salary_txn_count_6m        = 6
-    salary_amount_cv           = 0.05
-    salary_date_std            = 2
-    salary_creditor_consistent = 1
-    salary_missing_months      = 0
-    total_payments_6m          = 3
-    total_late_15_6m           = 0
-    total_late_30_6m           = dpd_30_count_6m
-    total_late_60_6m           = 0
-    total_late_90_6m           = 0
-    max_days_late_6m           = max_dpd_6m
-    avg_days_late_6m           = max_dpd_6m / max(1, dpd_30_count_6m) if dpd_30_count_6m > 0 else 0.0
-    total_late_30_3m           = 0
-    total_late_90_3m           = 0
-    total_payments_cc          = 0
-    dpd_count_cc               = 0
-    avg_balance_pos            = 0.0
-    dpd_count_pos              = 0
-    total_credit_6m            = 0
-    total_debit_6m             = 0
-    inward_bounce_count_3m     = 0
-    recent_payment_stress      = 0
+    salary_txn_count_6m         = 6
+    salary_amount_cv            = 0.05
+    salary_date_std             = 2
+    salary_creditor_consistent  = 1
+    salary_missing_months       = 0
+    total_payments_6m           = 3
+    total_late_15_6m            = 0
+    total_late_30_6m            = dpd_30_count_6m
+    total_late_60_6m            = 0
+    total_late_90_6m            = 0
+    max_days_late_6m            = max_dpd_6m
+    avg_days_late_6m            = max_dpd_6m / max(1, dpd_30_count_6m) if dpd_30_count_6m > 0 else 0.0
+    total_late_30_3m            = 0
+    total_late_90_3m            = 0
+    total_payments_cc           = 0
+    dpd_count_cc                = 0
+    avg_balance_pos             = 0.0
+    dpd_count_pos               = 0
+    total_credit_6m             = 0
+    total_debit_6m              = 0
+    inward_bounce_count_3m      = 0
+    recent_payment_stress       = 0
 
     # ------------------------------------------------------------------
     # 11. QUALITATIVE FLAGS
@@ -2468,7 +2535,7 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
         else "HEALTHY"
     )
     liquidity_flag = (
-        "LOW"       if avg_monthly_balance_6m < existing_emi
+        "LOW"      if avg_monthly_balance_6m < existing_emi
         else "MODERATE" if avg_monthly_balance_6m < existing_emi * 1.5
         else "ADEQUATE"
     )
@@ -2481,15 +2548,15 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
     pct_of_active_TLs_ever = round(active_accounts / total_accounts, 2) if total_accounts > 0 else 0
 
     # ------------------------------------------------------------------
-    # 12. ASSEMBLE AND RETURN — FIX-2: include 'success': True
+    # 12. ASSEMBLE AND RETURN
     # ------------------------------------------------------------------
-    total_limit_all   = sum(r['limit']   for r in account_rows)
-    total_balance_all = sum(r['balance'] for r in account_rows)
+    total_limit_all       = sum(r['limit']   for r in account_rows)
+    total_balance_all     = sum(r['balance'] for r in account_rows)
     pct_currentBal_all_TL = round(total_balance_all / total_limit_all, 4) if total_limit_all > 0 else 0.0
 
     return {
-        # FIX-2: success flag so app.py extraction_result.get('success') works
-        'success': True,
+        'success':            True,
+        'extraction_method':  extraction_method,  # FIX-F
 
         # ── Income & Annuity ──────────────────────────────────────────
         "AMT_INCOME_TOTAL":          amt_income_total,
@@ -2522,7 +2589,7 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
 
         # ── Credit Card Metrics ───────────────────────────────────────
         "avg_balance_cc":            avg_balance_cc,
-        "total_drawings_cc":         total_drawings_cc,
+        "total_drawings_cc":         0.0,
         "avg_credit_limit":          avg_credit_limit,
         "max_utilization":           cc_utilization,
         "total_payments_cc":         total_payments_cc,
@@ -2557,30 +2624,30 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
         "Time_With_Curr_Empr":       time_with_curr_empr,
 
         # ── CIBIL Delinquency Features ────────────────────────────────
-        "num_times_delinquent":      dpd_30_count_6m,
-        "max_delinquency_level":     max_dpd_6m,
-        "max_recent_level_of_deliq": max_dpd_6m,
-        "num_deliq_6mts":            dpd_30_count_6m,
-        "num_deliq_12mts":           dpd_30_count_6m,
-        "num_deliq_6_12mts":         0,
-        "max_deliq_6mts":            max_dpd_6m if dpd_30_count_6m > 0 else -99999,
-        "max_deliq_12mts":           max_dpd_6m if dpd_30_count_6m > 0 else -99999,
-        "num_times_30p_dpd":         dpd_30_count_6m,
-        "num_times_60p_dpd":         dpd_60_count_6m,
-        "recent_level_of_deliq":     max_dpd_6m,
-        "num_std":                   active_accounts,
-        "num_std_6mts":              active_accounts,
-        "num_std_12mts":             active_accounts,
-        "num_sub":                   dpd_30_count_6m,
-        "num_sub_6mts":              dpd_30_count_6m,
-        "num_sub_12mts":             dpd_30_count_6m,
-        "num_dbt":                   0,
-        "num_dbt_6mts":              0,
-        "num_dbt_12mts":             0,
-        "num_lss":                   written_off_count,
-        "num_lss_6mts":              0,
-        "num_lss_12mts":             0,
-        "time_since_recent_payment": -99999,
+        "num_times_delinquent":       dpd_30_count_6m,
+        "max_delinquency_level":      max_dpd_6m,
+        "max_recent_level_of_deliq":  max_dpd_6m,
+        "num_deliq_6mts":             dpd_30_count_6m,
+        "num_deliq_12mts":            dpd_30_count_6m,
+        "num_deliq_6_12mts":          0,
+        "max_deliq_6mts":             max_dpd_6m if dpd_30_count_6m > 0 else -99999,
+        "max_deliq_12mts":            max_dpd_6m if dpd_30_count_6m > 0 else -99999,
+        "num_times_30p_dpd":          dpd_30_count_6m,
+        "num_times_60p_dpd":          dpd_60_count_6m,
+        "recent_level_of_deliq":      max_dpd_6m,
+        "num_std":                    active_accounts,
+        "num_std_6mts":               active_accounts,
+        "num_std_12mts":              active_accounts,
+        "num_sub":                    dpd_30_count_6m,
+        "num_sub_6mts":               dpd_30_count_6m,
+        "num_sub_12mts":              dpd_30_count_6m,
+        "num_dbt":                    0,
+        "num_dbt_6mts":               0,
+        "num_dbt_12mts":              0,
+        "num_lss":                    written_off_count,
+        "num_lss_6mts":               0,
+        "num_lss_12mts":              0,
+        "time_since_recent_payment":  -99999,
         "time_since_first_deliquency":  -99999 if dpd_30_count_6m == 0 else 180,
         "time_since_recent_deliquency": -99999 if dpd_30_count_6m == 0 else 30,
 
@@ -2598,13 +2665,13 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
         "PL_enq_L12m":               0,
 
         # ── Portfolio Ratios ──────────────────────────────────────────
-        "pct_of_active_TLs_ever":    pct_of_active_TLs_ever,
-        "pct_opened_TLs_L6m_of_L12m":0.3,
-        "pct_currentBal_all_TL":     pct_currentBal_all_TL,
-        "pct_PL_enq_L6m_of_L12m":   0.0,
-        "pct_CC_enq_L6m_of_L12m":   0.0,
-        "pct_PL_enq_L6m_of_ever":   0.0,
-        "pct_CC_enq_L6m_of_ever":   0.0,
+        "pct_of_active_TLs_ever":     pct_of_active_TLs_ever,
+        "pct_opened_TLs_L6m_of_L12m": 0.3,
+        "pct_currentBal_all_TL":      pct_currentBal_all_TL,
+        "pct_PL_enq_L6m_of_L12m":    0.0,
+        "pct_CC_enq_L6m_of_L12m":    0.0,
+        "pct_PL_enq_L6m_of_ever":    0.0,
+        "pct_CC_enq_L6m_of_ever":    0.0,
 
         # ── Utilization ───────────────────────────────────────────────
         "CC_utilization":            cc_utilization,
@@ -2651,7 +2718,7 @@ def _extract_impl(pdf_source: Union[str, object]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Categorical flag inference (for cases where CIBIL is unavailable)
+# Categorical flag inference (for cases where CIBIL PDF is unavailable)
 # ---------------------------------------------------------------------------
 
 def infer_categorical_flags(features: dict) -> dict:
@@ -2699,12 +2766,12 @@ def infer_categorical_flags(features: dict) -> dict:
     high_util_flag = 1 if cc_util > 0.30 else 0
 
     features.update({
-        "bureau_risk_flag":          bureau_risk_flag,
-        "salary_stability_flag":     salary_stability_flag,
-        "cashflow_health":           cashflow_health,
-        "liquidity_flag":            liquidity_flag,
-        "payment_discipline_flag":   payment_discipline_flag,
-        "high_util_flag":            high_util_flag,
+        "bureau_risk_flag":         bureau_risk_flag,
+        "salary_stability_flag":    salary_stability_flag,
+        "cashflow_health":          cashflow_health,
+        "liquidity_flag":           liquidity_flag,
+        "payment_discipline_flag":  payment_discipline_flag,
+        "high_util_flag":           high_util_flag,
     })
     return features
 
