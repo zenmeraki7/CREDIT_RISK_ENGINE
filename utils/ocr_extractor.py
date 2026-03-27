@@ -2046,6 +2046,9 @@ Extracts ALL fields from TransUnion CIBIL reports including:
   - Derived model features aligned with credit_risk_engine schema
 
 Fixes applied vs. original extraction:
+  ✅ FIX-1: Function now accepts UploadedFile OR file path (was path-only, broke Streamlit upload)
+  ✅ FIX-2: Returns {'success': True/False, ...} so app.py can check extraction result
+  ✅ FIX-3: Wraps entire extraction in try/except and returns traceback on failure
   ✅ Account rows now correctly parsed despite concatenated fields (e.g., "Kotak BankCredit Card")
   ✅ Credit utilisation percentages parsed correctly even when no spaces between values
   ✅ Car Loan mapped to GL (not HL)
@@ -2059,9 +2062,11 @@ Fixes applied vs. original extraction:
 """
 
 import re
+import io
 import math
+import traceback as _tb
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 import pdfplumber
 
 
@@ -2118,14 +2123,55 @@ def _safe_int(val) -> int:
 # Main extractor
 # ---------------------------------------------------------------------------
 
-def extract_cibil_from_pdf(pdf_path: str) -> dict:
+def extract_cibil_from_pdf(pdf_source: Union[str, object]) -> dict:
     """
     Parse a TransUnion CIBIL PDF and return a flat feature dict
     compatible with the credit_risk_engine schema.
+
+    FIX-1: Accepts EITHER:
+      - a file path string (e.g. "cibil.pdf")
+      - a Streamlit UploadedFile object (has .read() method)
+      - any file-like object with .read()
+
+    FIX-2: Always returns a dict with 'success' key:
+      {'success': True,  ...fields...}
+      {'success': False, 'error': '...', 'traceback': '...'}
+
+    FIX-3: All exceptions are caught and returned as structured error dict.
     """
-    with pdfplumber.open(pdf_path) as pdf:
+    try:
+        return _extract_impl(pdf_source)
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f"{type(e).__name__}: {str(e)}",
+            'traceback': _tb.format_exc(),
+        }
+
+
+def _extract_impl(pdf_source: Union[str, object]) -> dict:
+    """
+    Internal implementation. Raises on error — caller wraps in try/except.
+    """
+    # FIX-1: Normalise input to something pdfplumber.open() accepts
+    if hasattr(pdf_source, 'read'):
+        # Streamlit UploadedFile or any file-like object
+        pdf_bytes = pdf_source.read()
+        pdf_file = io.BytesIO(pdf_bytes)
+    else:
+        # Plain file path string
+        pdf_file = pdf_source
+
+    with pdfplumber.open(pdf_file) as pdf:
         full_text = "\n".join(
             page.extract_text() or "" for page in pdf.pages
+        )
+
+    if not full_text.strip():
+        raise ValueError(
+            "PDF produced no extractable text. "
+            "The file may be image-only (scanned) or encrypted. "
+            "Ensure the PDF is text-based or add OCR support (pytesseract + pdf2image)."
         )
 
     lines = [l.strip() for l in full_text.splitlines() if l.strip()]
@@ -2135,14 +2181,12 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     # 1. CREDIT SCORE
     # ------------------------------------------------------------------
     bureau_score = 0
-    # Strategy: extract the CIBIL SCORE section, then find the first 3-digit 300-900
     score_section = re.search(r'CIBIL SCORE(.*?)(?:EMPLOYMENT|ACCOUNT)', text_block)
     if score_section:
         for tok in score_section.group(1).split():
             if re.fullmatch(r'[3-9]\d{2}', tok):
                 bureau_score = int(tok)
                 break
-    # Fallback: first standalone 3-digit 300-900 token
     if bureau_score == 0:
         m = re.search(r'\b([89]\d{2}|[3-7]\d{2})\b', text_block)
         if m:
@@ -2162,7 +2206,7 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     m = re.search(r'Gender\s+PAN.*?(\bMale\b|\bFemale\b)', text_block, re.IGNORECASE)
     if m:
         gender_raw = m.group(1).capitalize()
-    gender = "M" if gender_raw.upper() == "MALE" else ("F" if gender_raw.upper() == "FEMALE" else "")
+    gender = "M" if gender_raw.upper() == "MALE" else ("F" if gender_raw.upper() == "FEMALE" else "U")
 
     marital_status = ""
     m = re.search(r'Marital Status.*?(\bMarried\b|\bSingle\b|\bDivorced\b|\bWidowed\b)', text_block, re.IGNORECASE)
@@ -2178,7 +2222,6 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         employment_type = m.group(1).strip()
 
     net_monthly_income = 0.0
-    # Look for "Rs. 68,000 36 months" pattern
     m = re.search(r'Net Monthly Income\s+With Current Employer\s+Rs\.\s*([\d,]+)\s+(\d+)\s+months', text_block, re.IGNORECASE)
     if m:
         net_monthly_income = _parse_rs(m.group(1))
@@ -2200,7 +2243,6 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     current_balance_total = 0.0
     overdue_amount = 0.0
 
-    # Total Accounts Active Closed Settled
     m = re.search(
         r'Total Accounts\s+Active\s+Closed\s+Settled\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)',
         text_block
@@ -2211,7 +2253,6 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         closed_accounts = int(m.group(3))
         settled_count   = int(m.group(4))
 
-    # Written Off Current Balance Overdue Amount
     m = re.search(r'Written Off\s+Current Balance\s+Overdue Amount\s+(\d+)\s+(Rs\.\s*[\d,]+)\s+(Rs\.\s*[\d,]+)', text_block)
     if m:
         written_off_count      = int(m.group(1))
@@ -2219,14 +2260,13 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         overdue_amount         = _parse_rs(m.group(3))
 
     # ------------------------------------------------------------------
-    # 5. CREDIT UTILISATION (from CIBIL section) — corrected regex
+    # 5. CREDIT UTILISATION
     # ------------------------------------------------------------------
     cc_util_pct   = 0.0
     pl_util_pct   = 0.0
     max_unsec_pct = 0.0
     credit_hungry = 0
 
-    # Pattern that handles possible missing spaces between values
     m = re.search(
         r'CC Utilization\s*%\s*PL Utilization\s*%\s*Max Unsecured Exposure\s*%\s*Credit Hungry Flag\s*([\d.]+)%\s*([\d.]+)%\s*([\d.]+)%\s*(Yes|No)',
         text_block, re.IGNORECASE
@@ -2237,7 +2277,6 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         max_unsec_pct = float(m.group(3))
         credit_hungry = 0 if m.group(4).lower() == 'no' else 1
     else:
-        # Fallback: look for each individually
         m2 = re.search(r'CC Utilization.*?([\d.]+)%', text_block)
         if m2: cc_util_pct = float(m2.group(1))
         m2 = re.search(r'PL Utilization.*?([\d.]+)%', text_block)
@@ -2248,7 +2287,7 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         if m2: credit_hungry = 0 if m2.group(1).lower() == 'no' else 1
 
     # ------------------------------------------------------------------
-    # 6. ACCOUNT DETAILS — corrected regex for concatenated fields
+    # 6. ACCOUNT DETAILS
     # ------------------------------------------------------------------
     PRODUCT_TYPES = {
         'Home Loan': 'HL',
@@ -2261,21 +2300,19 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     }
 
     account_rows = []
-    # Extract account section between ACCOUNT DETAILS and ENQUIRY DETAILS
     account_section = re.search(
         r'ACCOUNT DETAILS\s+Lender.*?DPD 6M(.*?)(?:ENQUIRY DETAILS|SCORE FACTORS)',
         text_block, re.DOTALL
     )
     if account_section:
         rows_text = account_section.group(1)
-        # Row pattern: lender + product (no space), opened date, limit, balance, status + dpd (no space)
         row_pattern = re.compile(
             r'([\w\s&]+?)(Credit Card|Car Loan|Home Loan|Personal Loan|Gold Loan|Auto Loan|Overdraft|Business Loan)'
             r'\s+([A-Z][a-z]{2}-\d{4})'
             r'\s+Rs\.\s*([\d,]+)'
             r'\s+Rs\.\s*([\d,]+)'
             r'\s+(Active|Closed|Settled|Written[- ]Off)'
-            r'(\d+)',  # DPD attached directly to status
+            r'(\d+)',
             re.IGNORECASE
         )
         for m in row_pattern.finditer(rows_text):
@@ -2291,29 +2328,24 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
                 'dpd':      int(m.group(7)),
             })
 
-    # Aggregate by product type
-    cc_rows  = [r for r in account_rows if r['ptype'] == 'CC']
-    pl_rows  = [r for r in account_rows if r['ptype'] == 'PL']
-    hl_rows  = [r for r in account_rows if r['ptype'] == 'HL']
-    gl_rows  = [r for r in account_rows if r['ptype'] == 'GL']
+    cc_rows = [r for r in account_rows if r['ptype'] == 'CC']
+    pl_rows = [r for r in account_rows if r['ptype'] == 'PL']
+    hl_rows = [r for r in account_rows if r['ptype'] == 'HL']
+    gl_rows = [r for r in account_rows if r['ptype'] == 'GL']
 
-    # CC metrics
     avg_balance_cc    = sum(r['balance'] for r in cc_rows) / len(cc_rows) if cc_rows else 0.0
     avg_credit_limit  = sum(r['limit']   for r in cc_rows) / len(cc_rows) if cc_rows else 0.0
-    total_drawings_cc = 0.0   # CIBIL does not report drawings; use bank statement source
+    total_drawings_cc = 0.0
 
-    # PL metrics
     pl_total_limit   = sum(r['limit']   for r in pl_rows)
     pl_total_balance = sum(r['balance'] for r in pl_rows)
     pl_utilization   = round(pl_total_balance / pl_total_limit, 4) if pl_total_limit > 0 else 0.0
 
-    # Flags driven by actual account presence
-    CC_Flag = 1 if cc_rows  else 0
-    PL_Flag = 1 if pl_rows  else 0
-    HL_Flag = 1 if hl_rows  else 0   # only true if there is a Home Loan
-    GL_Flag = 1 if gl_rows  else 0
+    CC_Flag = 1 if cc_rows else 0
+    PL_Flag = 1 if pl_rows else 0
+    HL_Flag = 1 if hl_rows else 0
+    GL_Flag = 1 if gl_rows else 0
 
-    # Utilization (use CIBIL-reported value as primary)
     cc_utilization = round(cc_util_pct / 100, 4)
     pl_utilization_cibil = round(pl_util_pct / 100, 4)
     pl_utilization_final = pl_utilization_cibil if pl_util_pct > 0 else pl_utilization
@@ -2331,7 +2363,6 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     m = re.search(r'Last 12 Months:\s*(\d+)', text_block)
     if m: enq_L12m = int(m.group(1))
 
-    # Time since most recent enquiry (days approx)
     time_since_recent_enq = -99999
     enq_section_m = re.search(r'ENQUIRY DETAILS(.*?)(?:SCORE FACTORS|$)', text_block, re.DOTALL)
     if enq_section_m:
@@ -2341,43 +2372,25 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
             if enq_date:
                 time_since_recent_enq = (datetime.today() - enq_date).days
 
-    # Last product enquired – extract from the most recent enquiry
     last_prod_enq2 = "OTH"
     first_prod_enq2 = "OTH"
     if enq_section_m:
-        # Find all product entries in the enquiry table
         prod_matches = re.findall(r'\d{2}-[A-Za-z]{3}-\d{4}\s+([\w\s]+?)(?=\s+Rs\.)', enq_section_m.group(1), re.IGNORECASE)
         if prod_matches:
-            # Most recent is the first in the list (if the table is in descending order)
-            # Actually, the table is usually in descending date order, so first is most recent.
-            # But we'll take the first product (most recent) and last product (oldest)
-            last_prod_raw = prod_matches[0].strip().lower()
-            first_prod_raw = prod_matches[-1].strip().lower()
-            # Map product to standard type
-            if 'personal' in last_prod_raw:
-                last_prod_enq2 = 'PL'
-            elif 'credit card' in last_prod_raw:
-                last_prod_enq2 = 'CC'
-            elif 'home' in last_prod_raw:
-                last_prod_enq2 = 'HL'
-            elif 'car' in last_prod_raw or 'auto' in last_prod_raw:
-                last_prod_enq2 = 'GL'
-            # Similarly for first
-            if 'personal' in first_prod_raw:
-                first_prod_enq2 = 'PL'
-            elif 'credit card' in first_prod_raw:
-                first_prod_enq2 = 'CC'
-            elif 'home' in first_prod_raw:
-                first_prod_enq2 = 'HL'
-            elif 'car' in first_prod_raw or 'auto' in first_prod_raw:
-                first_prod_enq2 = 'GL'
+            for prod_raw, dest in [(prod_matches[0], 'last'), (prod_matches[-1], 'first')]:
+                p = prod_raw.strip().lower()
+                code = ('PL' if 'personal' in p else
+                        'CC' if 'credit card' in p else
+                        'HL' if 'home' in p else
+                        'GL' if ('car' in p or 'auto' in p) else 'OTH')
+                if dest == 'last':  last_prod_enq2  = code
+                else:               first_prod_enq2 = code
 
     # ------------------------------------------------------------------
     # 8. DERIVED INCOME & EMI FEATURES
     # ------------------------------------------------------------------
     amt_income_total = round(net_monthly_income * 12, 2)
-    
-    # Estimate EMI for active loans: assume 120 months for HL and GL, 24 months for PL (since personal loans are shorter)
+
     hl_balance = sum(r['balance'] for r in hl_rows)
     hl_emi_est = round(hl_balance / 120, 2) if hl_balance > 0 else 0.0
     gl_balance = sum(r['balance'] for r in gl_rows)
@@ -2390,7 +2403,7 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     total_emi_monthly = existing_emi
 
     net_cash_surplus_6m = net_monthly_income - existing_emi
-    avg_monthly_balance_6m = net_cash_surplus_6m  # placeholder; should be from bank statements
+    avg_monthly_balance_6m = net_cash_surplus_6m
 
     # ------------------------------------------------------------------
     # 9. DELINQUENCY FEATURES
@@ -2400,42 +2413,42 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
     dpd_30_count_6m = sum(1 for r in account_rows if r['dpd'] >= 30)
     dpd_60_count_6m = sum(1 for r in account_rows if r['dpd'] >= 60)
     dpd_90_count_6m = sum(1 for r in account_rows if r['dpd'] >= 90)
-    dpd_30_count_3m = 0   # CIBIL only provides 6M DPD; 3M requires bank statement
+    dpd_30_count_3m = 0
     total_dpd_count = dpd_30_count_6m
 
-    high_dpd_risk      = 1 if max_dpd_6m >= 60 else 0
-    recent_deliq_flag  = 1 if dpd_30_count_6m > 0 else 0
+    high_dpd_risk         = 1 if max_dpd_6m >= 60 else 0
+    recent_deliq_flag     = 1 if dpd_30_count_6m > 0 else 0
     delinq_severity_score = min(dpd_90_count_6m * 30 + dpd_30_count_6m * 10, 100)
     account_quality_score = max(0, 100 - delinq_severity_score - (written_off_count * 20) - (settled_count * 5))
 
     # ------------------------------------------------------------------
-    # 10. BANK STATEMENT FEATURES (placeholders, override externally)
+    # 10. BANK STATEMENT PLACEHOLDERS
     # ------------------------------------------------------------------
-    salary_txn_count_6m       = 6
-    salary_amount_cv          = 0.05
-    salary_date_std           = 2
-    salary_creditor_consistent= 1
-    salary_missing_months     = 0
-    total_payments_6m         = 3
-    total_late_15_6m          = 0
-    total_late_30_6m          = dpd_30_count_6m
-    total_late_60_6m          = 0
-    total_late_90_6m          = 0
-    max_days_late_6m          = max_dpd_6m
-    avg_days_late_6m          = max_dpd_6m / max(1, dpd_30_count_6m) if dpd_30_count_6m > 0 else 0.0
-    total_late_30_3m          = 0
-    total_late_90_3m          = 0
-    total_payments_cc         = 0
-    dpd_count_cc              = 0
-    avg_balance_pos           = 0.0
-    dpd_count_pos             = 0
-    total_credit_6m           = 0
-    total_debit_6m            = 0
-    inward_bounce_count_3m    = 0
-    recent_payment_stress     = 0
+    salary_txn_count_6m        = 6
+    salary_amount_cv           = 0.05
+    salary_date_std            = 2
+    salary_creditor_consistent = 1
+    salary_missing_months      = 0
+    total_payments_6m          = 3
+    total_late_15_6m           = 0
+    total_late_30_6m           = dpd_30_count_6m
+    total_late_60_6m           = 0
+    total_late_90_6m           = 0
+    max_days_late_6m           = max_dpd_6m
+    avg_days_late_6m           = max_dpd_6m / max(1, dpd_30_count_6m) if dpd_30_count_6m > 0 else 0.0
+    total_late_30_3m           = 0
+    total_late_90_3m           = 0
+    total_payments_cc          = 0
+    dpd_count_cc               = 0
+    avg_balance_pos            = 0.0
+    dpd_count_pos              = 0
+    total_credit_6m            = 0
+    total_debit_6m             = 0
+    inward_bounce_count_3m     = 0
+    recent_payment_stress      = 0
 
     # ------------------------------------------------------------------
-    # 11. QUALITATIVE FLAGS (derived)
+    # 11. QUALITATIVE FLAGS
     # ------------------------------------------------------------------
     high_util_flag = 1 if cc_utilization > 0.30 else 0
 
@@ -2444,8 +2457,8 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         else "MEDIUM" if (bureau_score < 700 or max_dpd_6m >= 30)
         else "LOW"
     )
-    salary_stability_flag  = (
-        "UNSTABLE" if salary_amount_cv > 0.20
+    salary_stability_flag = (
+        "UNSTABLE"  if salary_amount_cv > 0.20
         else "MODERATE" if salary_amount_cv > 0.12
         else "STABLE"
     )
@@ -2465,17 +2478,19 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         else "GOOD"
     )
 
-    # Bureau score percent-of-active TLs ever
     pct_of_active_TLs_ever = round(active_accounts / total_accounts, 2) if total_accounts > 0 else 0
 
     # ------------------------------------------------------------------
-    # 12. ASSEMBLE FINAL FEATURE DICT
+    # 12. ASSEMBLE AND RETURN — FIX-2: include 'success': True
     # ------------------------------------------------------------------
-    total_limit_all = sum(r['limit'] for r in account_rows)
+    total_limit_all   = sum(r['limit']   for r in account_rows)
     total_balance_all = sum(r['balance'] for r in account_rows)
     pct_currentBal_all_TL = round(total_balance_all / total_limit_all, 4) if total_limit_all > 0 else 0.0
 
     return {
+        # FIX-2: success flag so app.py extraction_result.get('success') works
+        'success': True,
+
         # ── Income & Annuity ──────────────────────────────────────────
         "AMT_INCOME_TOTAL":          amt_income_total,
         "AMT_ANNUITY":               amt_annuity,
@@ -2537,7 +2552,7 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         "AGE":                       age,
         "GENDER":                    gender,
         "MARITALSTATUS":             marital_status,
-        "EDUCATION":                 "GRADUATE",   # not in CIBIL; override externally
+        "EDUCATION":                 "GRADUATE",
         "NETMONTHLYINCOME":          net_monthly_income,
         "Time_With_Curr_Empr":       time_with_curr_empr,
 
@@ -2556,7 +2571,7 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         "num_std":                   active_accounts,
         "num_std_6mts":              active_accounts,
         "num_std_12mts":             active_accounts,
-        "num_sub":                   dpd_30_count_6m,  # substandard if any 30+ dpd
+        "num_sub":                   dpd_30_count_6m,
         "num_sub_6mts":              dpd_30_count_6m,
         "num_sub_12mts":             dpd_30_count_6m,
         "num_dbt":                   0,
@@ -2566,7 +2581,7 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         "num_lss_6mts":              0,
         "num_lss_12mts":             0,
         "time_since_recent_payment": -99999,
-        "time_since_first_deliquency": -99999 if dpd_30_count_6m == 0 else 180,
+        "time_since_first_deliquency":  -99999 if dpd_30_count_6m == 0 else 180,
         "time_since_recent_deliquency": -99999 if dpd_30_count_6m == 0 else 30,
 
         # ── Enquiry Features ──────────────────────────────────────────
@@ -2624,14 +2639,14 @@ def extract_cibil_from_pdf(pdf_path: str) -> dict:
         "account_quality_score":     account_quality_score,
         "_surplus_proxy":            net_cash_surplus_6m,
 
-        # ── Extra fields extracted (not in original schema) ───────────
+        # ── Extra audit fields ────────────────────────────────────────
         "_current_balance_total":    current_balance_total,
         "_overdue_amount":           overdue_amount,
         "_total_accounts":           total_accounts,
         "_closed_accounts":          closed_accounts,
         "_pl_total_limit":           pl_total_limit,
         "_pl_total_balance":         pl_total_balance,
-        "_account_rows":             account_rows,  # raw rows for audit
+        "_account_rows":             account_rows,
     }
 
 
@@ -2643,9 +2658,6 @@ def infer_categorical_flags(features: dict) -> dict:
     """
     Given a features dict (possibly with numeric-only values),
     infer / recompute the qualitative string flags.
-
-    Useful for pipeline stages that receive a numeric-only row
-    (e.g. from CSV) and need the categorical flags re-derived.
     """
     bureau_score      = features.get("bureau_score", 0)
     max_dpd_6m        = features.get("max_dpd_6m", 0)
@@ -2704,6 +2716,5 @@ if __name__ == "__main__":
     import sys, pprint
     path = sys.argv[1] if len(sys.argv) > 1 else "sample_cibil.pdf"
     result = extract_cibil_from_pdf(path)
-    # Remove raw account rows for cleaner printout
     result.pop("_account_rows", None)
     pprint.pprint(result)
